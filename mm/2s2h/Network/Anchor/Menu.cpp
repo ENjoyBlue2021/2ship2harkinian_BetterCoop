@@ -57,7 +57,8 @@ void AnchorMainMenu(WidgetInfo& info) {
         if (selected) {
             UIWidgets::PushStyleButton(THEME_COLOR);
         }
-        if (ImGui::Button(anchorConnectionModes[i],
+        std::string modeBtnLabel = std::string(anchorConnectionModes[i]) + "##ModeBtn";
+        if (ImGui::Button(modeBtnLabel.c_str(),
                           ImVec2((ImGui::GetContentRegionAvail().x - (ImGui::GetStyle().ItemSpacing.x * (2 - i))) /
                                      (3 - i),
                                  0))) {
@@ -185,7 +186,8 @@ void AnchorMainMenu(WidgetInfo& info) {
                                   : (mode == 0 ? "Host LAN" : (mode == 1 ? "Join LAN" : "Connect"));
     UIWidgets::PushStyleButton(anchor->isEnabled ? UIWidgets::ColorValues.at(UIWidgets::Colors::Red)
                                                  : UIWidgets::ColorValues.at(UIWidgets::Colors::Green));
-    if (ImGui::Button(buttonLabel, ImVec2(-1.0f, 0.0f))) {
+    std::string connectBtnId = std::string(buttonLabel) + "##ConnectBtn";
+    if (ImGui::Button(connectBtnId.c_str(), ImVec2(-1.0f, 0.0f))) {
         if (anchor->isEnabled) {
             CVarClear("gNetwork.Anchor.Enabled");
             Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
