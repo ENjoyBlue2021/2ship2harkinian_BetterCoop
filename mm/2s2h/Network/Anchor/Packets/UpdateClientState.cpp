@@ -57,6 +57,7 @@ void Anchor::HandlePacket_UpdateClientState(nlohmann::json payload) {
     uint32_t clientId = payload["clientId"].get<uint32_t>();
 
     if (clients.contains(clientId)) {
+        bool wasSaveLoaded = clients[clientId].isSaveLoaded;
         AnchorClient client = payload["state"].get<AnchorClient>();
         clients[clientId].clientId = clientId;
         clients[clientId].name = client.name;
@@ -69,5 +70,10 @@ void Anchor::HandlePacket_UpdateClientState(nlohmann::json payload) {
         clients[clientId].isGameComplete = client.isGameComplete;
         clients[clientId].sceneId = client.sceneId;
         clients[clientId].entrance = client.entrance;
+
+        if (!wasSaveLoaded && client.isSaveLoaded && clientId != ownClientId && IsHost() && IsSaveLoaded()) {
+            SendPacket_UpdateTeamState();
+            SendPacket_SyncTime();
+        }
     }
 }

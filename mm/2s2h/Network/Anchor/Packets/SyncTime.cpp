@@ -117,6 +117,10 @@ void Anchor::HandlePacket_SyncTime(nlohmann::json payload) {
     gSaveContext.save.snowheadCleared = hostSnowhead;
     gSaveContext.save.hasTatl = hostHasTatl;
 
+    if (dayChanged && gPlayState != nullptr) {
+        Environment_NewDay(&gPlayState->envCtx);
+    }
+
     // Circular distance on 16-bit zelda_time
     int32_t diff = static_cast<int32_t>(hostTime) - static_cast<int32_t>(gSaveContext.save.time);
     if (diff > 32768) {
@@ -125,8 +129,12 @@ void Anchor::HandlePacket_SyncTime(nlohmann::json payload) {
         diff += 65536;
     }
 
-    // Snap time if day changed or clock drifted by more than ~30 units (~1 in-game minute)
-    if (dayChanged || std::abs(diff) > 30) {
+    // Snap time if day changed or clock drifted by more than ~12 units
+    if (dayChanged || std::abs(diff) > 12) {
         gSaveContext.save.time = hostTime;
+        gSaveContext.skyboxTime = hostTime;
+    } else if (std::abs(diff) > 2) {
+        gSaveContext.save.time = static_cast<u16>(static_cast<int32_t>(gSaveContext.save.time) + (diff / 2));
+        gSaveContext.skyboxTime = gSaveContext.save.time;
     }
 }

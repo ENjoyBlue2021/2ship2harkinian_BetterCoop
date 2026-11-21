@@ -61,6 +61,19 @@ void Anchor::SendPacket_PlayerUpdate() {
     payload["unk_B28"] = player->unk_B28;
     payload["unk_ACC"] = player->unk_ACC;
     payload["invincibilityTimer"] = player->invincibilityTimer;
+    payload["meleeWeaponState"] = player->meleeWeaponState;
+    payload["meleeWeaponAnimation"] = player->meleeWeaponAnimation;
+    payload["unk_B08"] = player->unk_B08;
+    payload["unk_B86_0"] = player->unk_B86[0];
+    payload["unk_B86_1"] = player->unk_B86[1];
+    payload["actionVar1"] = player->av1.actionVar1;
+    payload["unk_ABC"] = player->unk_ABC;
+    payload["health"] = gSaveContext.save.saveInfo.playerData.health;
+    payload["healthCapacity"] = gSaveContext.save.saveInfo.playerData.healthCapacity;
+    payload["magic"] = gSaveContext.save.saveInfo.playerData.magic;
+    payload["magicLevel"] = gSaveContext.save.saveInfo.playerData.magicLevel;
+    payload["doubleDefense"] = gSaveContext.save.saveInfo.playerData.doubleDefense;
+    payload["chateauActive"] = (uint8_t)(CHECK_WEEKEVENTREG(WEEKEVENTREG_DRANK_CHATEAU_ROMANI) ? 1 : 0);
     payload["quiet"] = true;
 
     for (auto& [clientId, client] : clients) {
@@ -110,5 +123,18 @@ void Anchor::HandlePacket_PlayerUpdate(nlohmann::json payload) {
         client.unk_B28 = payload.value("unk_B28", (int16_t)0);
         client.unk_ACC = payload.value("unk_ACC", (int16_t)0);
         client.invincibilityTimer = payload.value("invincibilityTimer", (int8_t)0);
+        client.meleeWeaponState = payload.value("meleeWeaponState", (uint8_t)0);
+        client.meleeWeaponAnimation = payload.value("meleeWeaponAnimation", (uint8_t)0);
+        client.unk_B08 = payload.value("unk_B08", 0.0f);
+        client.unk_B86_0 = payload.value("unk_B86_0", (int16_t)0);
+        client.unk_B86_1 = payload.value("unk_B86_1", (int16_t)0);
+        client.actionVar1 = payload.value("actionVar1", (int8_t)0);
+        client.unk_ABC = payload.value("unk_ABC", 0.0f);
+        client.health = payload.value("health", (int16_t)0x30);
+        client.healthCapacity = payload.value("healthCapacity", (int16_t)0x30);
+        client.magic = payload.value("magic", (int8_t)0);
+        client.magicLevel = payload.value("magicLevel", (int8_t)0);
+        client.doubleDefense = payload.value("doubleDefense", (uint8_t)0);
+        client.chateauActive = payload.value("chateauActive", (uint8_t)0);
     }
 }

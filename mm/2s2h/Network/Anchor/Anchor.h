@@ -54,6 +54,19 @@ typedef struct {
     int16_t unk_B28;
     int16_t unk_ACC;
     int8_t invincibilityTimer;
+    uint8_t meleeWeaponState;
+    uint8_t meleeWeaponAnimation;
+    float unk_B08;
+    int16_t unk_B86_0;
+    int16_t unk_B86_1;
+    int8_t actionVar1;
+    float unk_ABC;
+    int16_t health;
+    int16_t healthCapacity;
+    int8_t magic;
+    int8_t magicLevel;
+    uint8_t doubleDefense;
+    uint8_t chateauActive;
 
     // Ptr to the dummy player
     Player* player;
@@ -84,6 +97,9 @@ class Anchor : public Network {
     void HandlePacket_AllClientState(nlohmann::json payload);
     void HandlePacket_DamagePlayer(nlohmann::json payload);
     void HandlePacket_DisableAnchor(nlohmann::json payload);
+    void HandlePacket_EnemyDamage(nlohmann::json payload);
+    void HandlePacket_EnemyKill(nlohmann::json payload);
+    void HandlePacket_EnemyUpdate(nlohmann::json payload);
     void HandlePacket_GameComplete(nlohmann::json payload);
     void HandlePacket_GiveItem(nlohmann::json payload);
     void HandlePacket_PlayerSfx(nlohmann::json payload);
@@ -114,6 +130,9 @@ class Anchor : public Network {
     inline static const std::string ALL_CLIENT_STATE = "ALL_CLIENT_STATE";
     inline static const std::string DAMAGE_PLAYER = "DAMAGE_PLAYER";
     inline static const std::string DISABLE_ANCHOR = "DISABLE_ANCHOR";
+    inline static const std::string ENEMY_DAMAGE = "ENEMY_DAMAGE";
+    inline static const std::string ENEMY_KILL = "ENEMY_KILL";
+    inline static const std::string ENEMY_UPDATE = "ENEMY_UPDATE";
     inline static const std::string GAME_COMPLETE = "GAME_COMPLETE";
     inline static const std::string GIVE_ITEM = "GIVE_ITEM";
     inline static const std::string HANDSHAKE = "HANDSHAKE";
@@ -149,9 +168,17 @@ class Anchor : public Network {
     bool IsHost() const;
     void ResetHostTimeSyncTracker();
     void TickHostTimeSync();
+    void ResetEnemySyncState();
+    void TickEnemySync();
+    void OnEnemyActorUpdate(Actor* actor);
+    void OnEnemyActorKill(Actor* actor);
 
     void SendPacket_ClearTeamState(std::string teamId);
     void SendPacket_DamagePlayer(u32 clientId, u8 damageEffect, u8 damage);
+    void SendPacket_EnemyDamage(Actor* actor, u8 newHealth, u8 damage, u8 damageEffect, u16 colorFilterParams,
+                                u8 colorFilterTimer);
+    void SendPacket_EnemyKill(Actor* actor);
+    void SendPacket_EnemyUpdate();
     void SendPacket_GameComplete();
     void SendPacket_GiveItem(u16 modId, s16 getItemId, std::string targetTeamId = "");
     void SendPacket_Handshake();
@@ -169,7 +196,7 @@ class Anchor : public Network {
     void SendPacket_UpdateClientState();
     void SendPacket_UpdateDungeonItems();
     void SendPacket_UpdateRoomState();
-    void SendPacket_UpdateTeamState(std::string targetTeamId);
+    void SendPacket_UpdateTeamState(std::string targetTeamId = "");
 };
 
 typedef enum {

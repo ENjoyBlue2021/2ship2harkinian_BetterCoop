@@ -106,17 +106,6 @@ void AnchorRoomWindow::DrawElement() {
                 ImGui::PopStyleVar();
             }
 
-            if (client.clientVersion != Anchor::clientVersion) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1, 0, 0, 1), ICON_FA_EXCLAMATION_TRIANGLE);
-                if (ImGui::IsItemHovered()) {
-                    ImGui::BeginTooltip();
-                    ImGui::Text("Incompatible version! Will not work together!");
-                    ImGui::Text("Yours: %s", Anchor::clientVersion.c_str());
-                    ImGui::Text("Theirs: %s", client.clientVersion.c_str());
-                    ImGui::EndTooltip();
-                }
-            }
             ImGui::PopID();
         }
     }

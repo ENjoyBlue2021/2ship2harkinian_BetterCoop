@@ -89,15 +89,7 @@ void Anchor::ProcessIncomingPacket(nlohmann::json payload) {
 
     std::string packetType = payload["type"].get<std::string>();
 
-    // Ignore packets from mismatched clients, except for ALL_CLIENT_STATE, UPDATE_CLIENT_STATE, and PLAYER_UPDATE
-    if (packetType != ALL_CLIENT_STATE && packetType != UPDATE_CLIENT_STATE && packetType != PLAYER_UPDATE) {
-        if (payload.contains("clientId")) {
-            uint32_t clientId = payload["clientId"].get<uint32_t>();
-            if (clients.contains(clientId) && clients[clientId].clientVersion != clientVersion) {
-                return;
-            }
-        }
-    }
+    // Allow all packets between local Linux builds and GitHub CI Windows builds even if build strings differ
 
     // packetType here is a string so we can't use a switch statement
     if (packetType == ALL_CLIENT_STATE)
@@ -106,6 +98,12 @@ void Anchor::ProcessIncomingPacket(nlohmann::json payload) {
         HandlePacket_DamagePlayer(payload);
     else if (packetType == DISABLE_ANCHOR)
         HandlePacket_DisableAnchor(payload);
+    else if (packetType == ENEMY_DAMAGE)
+        HandlePacket_EnemyDamage(payload);
+    else if (packetType == ENEMY_KILL)
+        HandlePacket_EnemyKill(payload);
+    else if (packetType == ENEMY_UPDATE)
+        HandlePacket_EnemyUpdate(payload);
     else if (packetType == GAME_COMPLETE)
         HandlePacket_GameComplete(payload);
     else if (packetType == GIVE_ITEM)
@@ -146,6 +144,7 @@ static bool justReset = false;
 
 void Anchor::RegisterHooks() {
     COND_HOOK(OnSceneSpawnActors, isConnected, [&]() {
+        ResetEnemySyncState();
         SendPacket_UpdateClientState();
         justReset = false;
         shouldRefreshActors = true;
@@ -168,12 +167,17 @@ void Anchor::RegisterHooks() {
 
     COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, isConnected, [&](Actor* actor) {
         SendPacket_PlayerUpdate();
+        TickEnemySync();
 
         if (shouldRefreshActors) {
             shouldRefreshActors = false;
             RefreshClientActors();
         }
     });
+
+    COND_HOOK(OnActorUpdate, isConnected, [&](Actor* actor) { OnEnemyActorUpdate(actor); });
+
+    COND_HOOK(OnActorKill, isConnected, [&](Actor* actor) { OnEnemyActorKill(actor); });
 
     COND_HOOK(OnPlayerSfx, isConnected, [&](u16 sfxId) { SendPacket_PlayerSfx(sfxId); });
 
