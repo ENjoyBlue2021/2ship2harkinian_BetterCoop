@@ -3,16 +3,6 @@
 #include <vector>
 #include <cstring>
 
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
-
 static constexpr size_t MAX_LAN_CLIENTS = 4;
 
 LanHostServer::~LanHostServer() {
@@ -90,43 +80,36 @@ size_t LanHostServer::GetConnectedClientCount() const {
 }
 
 std::string LanHostServer::GetLocalLanIp() {
-    // Use a non-connecting UDP socket to determine the preferred outbound LAN interface IP.
-    // No packets are actually sent over the network.
-#ifdef _WIN32
-    SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock == INVALID_SOCKET) {
-        return "127.0.0.1";
-    }
-#else
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) {
-        return "127.0.0.1";
-    }
-#endif
+    IPaddress addrs[16];
+    int count = SDLNet_GetLocalAddresses(addrs, 16);
+    std::string fallback;
 
-    sockaddr_in remote{};
-    remote.sin_family = AF_INET;
-    remote.sin_port = htons(53);
-    inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr);
+    for (int i = 0; i < count; i++) {
+        uint32_t h = SDLNet_Read32(&addrs[i].host);
+        if (h == 0) {
+            continue;
+        }
+        uint8_t a = static_cast<uint8_t>((h >> 24) & 0xFF);
+        uint8_t b = static_cast<uint8_t>((h >> 16) & 0xFF);
+        uint8_t c = static_cast<uint8_t>((h >> 8) & 0xFF);
+        uint8_t d = static_cast<uint8_t>(h & 0xFF);
 
-    std::string result = "127.0.0.1";
-    if (connect(sock, reinterpret_cast<sockaddr*>(&remote), sizeof(remote)) == 0) {
-        sockaddr_in local{};
-        socklen_t len = sizeof(local);
-        if (getsockname(sock, reinterpret_cast<sockaddr*>(&local), &len) == 0) {
-            char buf[INET_ADDRSTRLEN] = {};
-            if (inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf))) {
-                result = buf;
-            }
+        // Skip loopback (127.x.x.x) and APIPA link-local (169.254.x.x)
+        if (a == 127 || (a == 169 && b == 254)) {
+            continue;
+        }
+
+        std::string ipStr = std::to_string(a) + "." + std::to_string(b) + "." + std::to_string(c) + "." + std::to_string(d);
+        // Prefer standard private LAN ranges (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+        if ((a == 192 && b == 168) || a == 10 || (a == 172 && b >= 16 && b <= 31)) {
+            return ipStr;
+        }
+        if (fallback.empty()) {
+            fallback = ipStr;
         }
     }
 
-#ifdef _WIN32
-    closesocket(sock);
-#else
-    close(sock);
-#endif
-    return result;
+    return fallback.empty() ? "127.0.0.1" : fallback;
 }
 
 void LanHostServer::ServerLoop() {
