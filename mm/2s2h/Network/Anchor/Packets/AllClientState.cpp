@@ -17,6 +17,8 @@ void Anchor::HandlePacket_AllClientState(nlohmann::json payload) {
     std::vector<AnchorClient> newClients = payload["state"].get<std::vector<AnchorClient>>();
     bool isGlobalRoom = (std::string("2ship-global") == CVarGetString("gNetwork.Anchor.RoomId", ""));
 
+    bool anyRemoteClientConnected = false;
+
     // add new clients
     for (auto& client : newClients) {
         if (client.self) {
@@ -32,12 +34,16 @@ void Anchor::HandlePacket_AllClientState(nlohmann::json payload) {
                         .prefix = client.name,
                         .message = client.online ? "Connected" : "Disconnected",
                     });
+                    if (client.online) {
+                        anyRemoteClientConnected = true;
+                    }
                 }
             } else if (client.online && !isGlobalRoom) {
                 Notification::Emit({
                     .prefix = client.name,
                     .message = "Connected",
                 });
+                anyRemoteClientConnected = true;
             }
         }
 
@@ -65,6 +71,11 @@ void Anchor::HandlePacket_AllClientState(nlohmann::json payload) {
     // (seperate loop to avoid iterator invalidation)
     for (auto& clientId : clientsToRemove) {
         clients.erase(clientId);
+    }
+
+    if (anyRemoteClientConnected && IsHost() && IsSaveLoaded()) {
+        SendPacket_UpdateTeamState(CVarGetString("gNetwork.Anchor.TeamId", "default"));
+        SendPacket_SyncTime();
     }
 
     shouldRefreshActors = true;

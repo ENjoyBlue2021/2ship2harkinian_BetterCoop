@@ -32,6 +32,10 @@ void Anchor::SendPacket_TeleportTo(uint32_t clientId) {
     QueueOutgoingPacket(payload);
 }
 
+void Anchor::SendPacket_SummonPlayer(uint32_t targetClientId) {
+    SendPacket_TeleportTo(targetClientId);
+}
+
 void Anchor::HandlePacket_TeleportTo(nlohmann::json payload) {
     if (!IsSaveLoaded()) {
         return;

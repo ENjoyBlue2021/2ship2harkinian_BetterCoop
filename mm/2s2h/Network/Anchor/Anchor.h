@@ -6,6 +6,7 @@
 #include <libultraship/libultraship.h>
 #include "build.h"
 #include "2s2h/Rando/Rando.h"
+#include "LanHostServer.h"
 
 #include <set>
 
@@ -92,6 +93,8 @@ class Anchor : public Network {
     void HandlePacket_ServerMessage(nlohmann::json payload);
     void HandlePacket_SetCheckStatus(nlohmann::json payload);
     void HandlePacket_SetFlag(nlohmann::json payload);
+    void HandlePacket_SyncTime(nlohmann::json payload);
+    void HandlePacket_SyncVanillaItem(nlohmann::json payload);
     void HandlePacket_TeleportTo(nlohmann::json payload);
     void HandlePacket_UnsetFlag(nlohmann::json payload);
     void HandlePacket_UpdateClientState(nlohmann::json payload);
@@ -101,6 +104,9 @@ class Anchor : public Network {
 
   public:
     uint32_t ownClientId;
+    LanHostServer lanServer;
+    bool isApplyingRemoteFlag = false;
+    bool isApplyingRemoteItem = false;
     inline static const std::string clientVersion =
         std::string((char*)gBuildVersion) + " | " + (char*)gGitBranch + " | " + (char*)gGitCommitHash;
 
@@ -118,6 +124,8 @@ class Anchor : public Network {
     inline static const std::string SERVER_MESSAGE = "SERVER_MESSAGE";
     inline static const std::string SET_CHECK_STATUS = "SET_CHECK_STATUS";
     inline static const std::string SET_FLAG = "SET_FLAG";
+    inline static const std::string SYNC_TIME = "SYNC_TIME";
+    inline static const std::string SYNC_VANILLA_ITEM = "SYNC_VANILLA_ITEM";
     inline static const std::string TELEPORT_TO = "TELEPORT_TO";
     inline static const std::string UNSET_FLAG = "UNSET_FLAG";
     inline static const std::string UPDATE_CLIENT_STATE = "UPDATE_CLIENT_STATE";
@@ -138,6 +146,9 @@ class Anchor : public Network {
     void QueueOutgoingPacket(nlohmann::json payload);
     bool IsSaveLoaded();
     bool CanTeleportTo(uint32_t clientId);
+    bool IsHost() const;
+    void ResetHostTimeSyncTracker();
+    void TickHostTimeSync();
 
     void SendPacket_ClearTeamState(std::string teamId);
     void SendPacket_DamagePlayer(u32 clientId, u8 damageEffect, u8 damage);
@@ -150,6 +161,9 @@ class Anchor : public Network {
     void SendPacket_RequestTeleport(u32 clientId);
     void SendPacket_SetCheckStatus(RandoCheckId randoCheckId);
     void SendPacket_SetFlag(s16 sceneId, s16 flagType, s16 flag);
+    void SendPacket_SummonPlayer(uint32_t targetClientId);
+    void SendPacket_SyncTime();
+    void SendPacket_SyncVanillaItem(u8 item);
     void SendPacket_TeleportTo(u32 clientId);
     void SendPacket_UnsetFlag(s16 sceneId, s16 flagType, s16 flag);
     void SendPacket_UpdateClientState();

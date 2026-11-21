@@ -18,14 +18,41 @@ extern PlayState* gPlayState;
 // MARK: - Overrides
 
 void Anchor::Enable() {
-    Network::Enable(CVarGetString("gNetwork.Anchor.Host", "anchor.proxysaw.dev"),
-                    CVarGetInteger("gNetwork.Anchor.Port", 43383));
-    ownClientId = CVarGetInteger("gNetwork.Anchor.LastClientId", 0);
-    roomState.ownerClientId = 0;
+    int mode = CVarGetInteger("gNetwork.Anchor.Mode", 0);
+    int port = CVarGetInteger("gNetwork.Anchor.Port", 43383);
+    if (port <= 0 || port > 65535) {
+        port = 43383;
+    }
+
+    if (mode == 0) {
+        // Host LAN: start embedded LAN server and connect locally as Host (clientId 1)
+        if (!lanServer.Start(static_cast<uint16_t>(port))) {
+            SPDLOG_ERROR("[Anchor] Failed to start LAN Host Server on port {}: {}", port, lanServer.GetLastError());
+            return;
+        }
+        Network::Enable("127.0.0.1", static_cast<uint16_t>(port));
+        ownClientId = 1;
+        roomState.ownerClientId = 1;
+    } else if (mode == 1) {
+        // Join LAN
+        lanServer.Stop();
+        Network::Enable(CVarGetString("gNetwork.Anchor.LanHostIp", "192.168.1.100"), static_cast<uint16_t>(port));
+        ownClientId = CVarGetInteger("gNetwork.Anchor.LastClientId", 0);
+        roomState.ownerClientId = 0;
+    } else {
+        // Online Anchor
+        lanServer.Stop();
+        Network::Enable(CVarGetString("gNetwork.Anchor.Host", "anchor.proxysaw.dev"), static_cast<uint16_t>(port));
+        ownClientId = CVarGetInteger("gNetwork.Anchor.LastClientId", 0);
+        roomState.ownerClientId = 0;
+    }
+    ResetHostTimeSyncTracker();
 }
 
 void Anchor::Disable() {
     Network::Disable();
+    lanServer.Stop();
+    ResetHostTimeSyncTracker();
 
     clients.clear();
     RefreshClientActors();
@@ -99,6 +126,10 @@ void Anchor::ProcessIncomingPacket(nlohmann::json payload) {
         HandlePacket_SetCheckStatus(payload);
     else if (packetType == SET_FLAG)
         HandlePacket_SetFlag(payload);
+    else if (packetType == SYNC_TIME)
+        HandlePacket_SyncTime(payload);
+    else if (packetType == SYNC_VANILLA_ITEM)
+        HandlePacket_SyncVanillaItem(payload);
     else if (packetType == TELEPORT_TO)
         HandlePacket_TeleportTo(payload);
     else if (packetType == UNSET_FLAG)
@@ -167,7 +198,39 @@ void Anchor::RegisterHooks() {
         }
     });
 
+    COND_HOOK(OnItemGive, isConnected, [&](u8 item) {
+        if (!isApplyingRemoteItem && IsSaveLoaded()) {
+            SendPacket_SyncVanillaItem(item);
+        }
+    });
+
+    COND_HOOK(OnFlagSet, isConnected, [&](FlagType flagType, u32 flag) {
+        if (!isApplyingRemoteFlag && IsSaveLoaded()) {
+            SendPacket_SetFlag(SCENE_MAX, static_cast<s16>(flagType), static_cast<s16>(flag));
+        }
+    });
+
+    COND_HOOK(OnFlagUnset, isConnected, [&](FlagType flagType, u32 flag) {
+        if (!isApplyingRemoteFlag && IsSaveLoaded()) {
+            SendPacket_UnsetFlag(SCENE_MAX, static_cast<s16>(flagType), static_cast<s16>(flag));
+        }
+    });
+
+    COND_HOOK(OnSceneFlagSet, isConnected, [&](s16 sceneId, FlagType flagType, u32 flag) {
+        if (!isApplyingRemoteFlag && IsSaveLoaded()) {
+            SendPacket_SetFlag(sceneId, static_cast<s16>(flagType), static_cast<s16>(flag));
+        }
+    });
+
+    COND_HOOK(OnSceneFlagUnset, isConnected, [&](s16 sceneId, FlagType flagType, u32 flag) {
+        if (!isApplyingRemoteFlag && IsSaveLoaded()) {
+            SendPacket_UnsetFlag(sceneId, static_cast<s16>(flagType), static_cast<s16>(flag));
+        }
+    });
+
     COND_HOOK(OnGameStateMainStart, isConnected, [&]() {
+        TickHostTimeSync();
+
         std::queue<nlohmann::json> packetQueue;
         Anchor::Instance->SwapIncomingPacketQueue(packetQueue);
 
@@ -247,4 +310,8 @@ bool Anchor::IsSaveLoaded() {
     }
 
     return true;
+}
+
+bool Anchor::IsHost() const {
+    return lanServer.IsRunning() || (ownClientId != 0 && ownClientId == roomState.ownerClientId);
 }

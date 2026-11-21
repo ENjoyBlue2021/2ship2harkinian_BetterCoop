@@ -89,9 +89,19 @@ void AnchorRoomWindow::DrawElement() {
 
             if (Anchor::Instance->CanTeleportTo(client.clientId)) {
                 ImGui::SameLine();
-                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-                if (ImGui::Button(ICON_FA_LOCATION_ARROW, ImVec2(20.0f, 20.0f))) {
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 0));
+                if (ImGui::Button("TP", ImVec2(0.0f, 20.0f))) {
                     Anchor::Instance->SendPacket_RequestTeleport(client.clientId);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Teleport to %s", client.name.c_str());
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Summon", ImVec2(0.0f, 20.0f))) {
+                    Anchor::Instance->SendPacket_SummonPlayer(client.clientId);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Teleport %s to you", client.name.c_str());
                 }
                 ImGui::PopStyleVar();
             }

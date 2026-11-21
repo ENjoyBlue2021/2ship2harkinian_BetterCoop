@@ -33,5 +33,10 @@ void Anchor::HandlePacket_RequestTeamState(nlohmann::json payload) {
         return;
     }
 
+    if (roomState.ownerClientId != 0 && !IsHost()) {
+        return;
+    }
+
     SendPacket_UpdateTeamState(CVarGetString("gNetwork.Anchor.TeamId", "default"));
+    SendPacket_SyncTime();
 }

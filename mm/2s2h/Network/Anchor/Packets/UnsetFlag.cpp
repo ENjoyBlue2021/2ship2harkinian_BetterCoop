@@ -26,6 +26,11 @@ void Anchor::SendPacket_UnsetFlag(s16 sceneId, s16 flagType, s16 flag) {
     QueueOutgoingPacket(payload);
 }
 
+extern "C" {
+#include "variables.h"
+#include "functions.h"
+}
+
 void Anchor::HandlePacket_UnsetFlag(nlohmann::json payload) {
     if (!IsSaveLoaded() || !roomState.syncItemsAndFlags) {
         return;
@@ -33,18 +38,67 @@ void Anchor::HandlePacket_UnsetFlag(nlohmann::json payload) {
 
     s16 sceneId = payload["sceneId"].get<s16>();
     s16 flagType = payload["flagType"].get<s16>();
-    s16 flag = payload["flag"].get<s16>();
+    u16 flag = static_cast<u16>(payload["flag"].get<s16>());
 
-    // if (sceneId == SCENE_MAX) {
-    //     auto effect = new GameInteractionEffect::UnsetFlag();
-    //     effect->parameters[0] = payload["flagType"].get<int16_t>();
-    //     effect->parameters[1] = payload["flag"].get<int16_t>();
-    //     effect->Apply();
-    // } else {
-    //     auto effect = new GameInteractionEffect::UnsetSceneFlag();
-    //     effect->parameters[0] = payload["sceneId"].get<int16_t>();
-    //     effect->parameters[1] = payload["flagType"].get<int16_t>();
-    //     effect->parameters[2] = payload["flag"].get<int16_t>();
-    //     effect->Apply();
-    // }
+    isApplyingRemoteFlag = true;
+
+    if (sceneId == SCENE_MAX) {
+        switch (static_cast<FlagType>(flagType)) {
+            case FLAG_WEEK_EVENT_REG:
+                Flags_ClearWeekEventReg(flag);
+                break;
+            case FLAG_EVENT_INF:
+                Flags_ClearEventInf(flag);
+                break;
+            case FLAG_RANDO_INF:
+                Flags_ClearRandoInf(static_cast<RandoInf>(flag));
+                break;
+            default:
+                break;
+        }
+    } else if (sceneId >= 0 && sceneId < ARRAY_COUNT(gSaveContext.cycleSceneFlags)) {
+        u32 bit = 1U << (flag & 0x1F);
+        bool inCurrentScene =
+            (gPlayState != nullptr) &&
+            (Play_GetOriginalSceneId(gPlayState->sceneId) == sceneId || gPlayState->sceneId == sceneId);
+
+        switch (static_cast<FlagType>(flagType)) {
+            case FLAG_CYCL_SCENE_CHEST:
+                gSaveContext.cycleSceneFlags[sceneId].chest &= ~bit;
+                if (inCurrentScene) {
+                    gPlayState->actorCtx.sceneFlags.chest &= ~bit;
+                }
+                break;
+            case FLAG_CYCL_SCENE_SWITCH: {
+                u32 wordIdx = (flag & ~0x1F) >> 5;
+                if (wordIdx == 0) {
+                    gSaveContext.cycleSceneFlags[sceneId].switch0 &= ~bit;
+                } else if (wordIdx == 1) {
+                    gSaveContext.cycleSceneFlags[sceneId].switch1 &= ~bit;
+                }
+                if (inCurrentScene && wordIdx < ARRAY_COUNT(gPlayState->actorCtx.sceneFlags.switches)) {
+                    gPlayState->actorCtx.sceneFlags.switches[wordIdx] &= ~bit;
+                }
+                break;
+            }
+            case FLAG_CYCL_SCENE_CLEARED_ROOM:
+                gSaveContext.cycleSceneFlags[sceneId].clearedRoom &= ~bit;
+                if (inCurrentScene) {
+                    gPlayState->actorCtx.sceneFlags.clearedRoom &= ~bit;
+                }
+                break;
+            case FLAG_CYCL_SCENE_COLLECTIBLE: {
+                gSaveContext.cycleSceneFlags[sceneId].collectible &= ~bit;
+                u32 wordIdx = (flag & ~0x1F) >> 5;
+                if (inCurrentScene && wordIdx < ARRAY_COUNT(gPlayState->actorCtx.sceneFlags.collectible)) {
+                    gPlayState->actorCtx.sceneFlags.collectible[wordIdx] &= ~bit;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    isApplyingRemoteFlag = false;
 }
