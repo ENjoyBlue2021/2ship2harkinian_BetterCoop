@@ -32,14 +32,14 @@ PlayerAnimationHeader* Player_GetIdleAnim(Player* player);
 
 static f32 sSpinChargeScales[] = { 0.1f, 0.15f, 0.2f, 0.25f, 0.3f, 0.25f, 0.2f, 0.15f, 0.0f };
 
-static TexturePtr sOverheadHeartTextures[] = {
+static const char* sOverheadHeartTextures[] = {
     gHeartFullTex,         gHeartQuarterTex,      gHeartQuarterTex,      gHeartQuarterTex,
     gHeartQuarterTex,      gHeartQuarterTex,      gHeartHalfTex,         gHeartHalfTex,
     gHeartHalfTex,         gHeartHalfTex,         gHeartHalfTex,         gHeartThreeQuarterTex,
     gHeartThreeQuarterTex, gHeartThreeQuarterTex, gHeartThreeQuarterTex, gHeartThreeQuarterTex,
 };
 
-static TexturePtr sOverheadHeartDDTextures[] = {
+static const char* sOverheadHeartDDTextures[] = {
     gDefenseHeartFullTex,         gDefenseHeartQuarterTex,      gDefenseHeartQuarterTex,
     gDefenseHeartQuarterTex,      gDefenseHeartQuarterTex,      gDefenseHeartQuarterTex,
     gDefenseHeartHalfTex,         gDefenseHeartHalfTex,         gDefenseHeartHalfTex,
@@ -184,6 +184,8 @@ void DummyPlayer_Update(Actor* actor, PlayState* play) {
     player->meleeWeaponAnimation = client.meleeWeaponAnimation;
 
     if (player->meleeWeaponState == 0 && prevMeleeState != 0) {
+        player->meleeWeaponInfo[0].active = false;
+        player->meleeWeaponInfo[1].active = false;
         EffectBlure* blure0 = (EffectBlure*)Effect_GetByIndex(player->meleeWeaponEffectIndex[0]);
         if (blure0 != nullptr) {
             EffectBlure_AddSpace(blure0);
@@ -446,14 +448,14 @@ static void DummyPlayer_DrawOverheadStatus(Player* player, PlayState* play, cons
         gDPSetEnvColor(POLY_XLU_DISP++, 50, 40, 60, 255);
     }
 
-    TexturePtr lastTex = nullptr;
+    const char* lastTex = nullptr;
     for (s16 i = 0; i < healthCapacity; i++) {
         if (i % 10 == 0) {
             s16 batchCount = std::min<s16>(healthCapacity - i, 10) * 4;
             gSPVertex(POLY_XLU_DISP++, (uintptr_t)&vtx[i * 4], batchCount, 0);
         }
 
-        TexturePtr heartTex;
+        const char* heartTex;
         if (client.doubleDefense > 0) {
             if (i < fullHearts) {
                 heartTex = gDefenseHeartFullTex;
@@ -474,7 +476,7 @@ static void DummyPlayer_DrawOverheadStatus(Player* player, PlayState* play, cons
 
         if (heartTex != lastTex) {
             lastTex = heartTex;
-            gDPLoadTextureBlock(POLY_XLU_DISP++, heartTex, G_IM_FMT_IA, G_IM_SIZ_8b, 16, 16, 0,
+            gDPLoadTextureBlock(POLY_XLU_DISP++, (TexturePtr)heartTex, G_IM_FMT_IA, G_IM_SIZ_8b, 16, 16, 0,
                                 G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK,
                                 G_TX_NOLOD, G_TX_NOLOD);
         }
