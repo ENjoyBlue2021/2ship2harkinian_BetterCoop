@@ -42,6 +42,7 @@ struct SyncedEnemyState {
     Vec3s targetWorldRot = { 0, 0, 0 };
     u8 health = 0;
     u32 lastUpdatedFrame = 0;
+    u32 lastSpawnAttemptFrame = 0;
     bool dead = false;
     u8 zeroHealthFrames = 0;
 };
@@ -54,6 +55,8 @@ struct LocalEnemyTracker {
 
 static std::map<std::string, SyncedEnemyState> sSyncedEnemies;
 static std::map<const Actor*, LocalEnemyTracker> sLocalEnemyTrackers;
+static std::map<std::string, Actor*> sKeyToActor;
+static std::map<const Actor*, std::string> sActorToKey;
 static std::set<std::string> sSuppressSendDamageForKey;
 static s16 sLastEnemySyncSceneId = SCENE_MAX;
 static u32 sEnemyUpdateTickCounter = 0;
@@ -108,10 +111,44 @@ static std::string GetEnemySyncKey(const Actor* actor) {
            std::to_string(hz);
 }
 
+static bool IsLiveEnemyActor(PlayState* play, Actor* target) {
+    if (play == nullptr || target == nullptr) {
+        return false;
+    }
+    s32 categories[2] = { ACTORCAT_ENEMY, ACTORCAT_BOSS };
+    for (s32 cat : categories) {
+        Actor* actor = play->actorCtx.actorLists[cat].first;
+        while (actor != nullptr) {
+            if (actor == target) {
+                return actor->update != nullptr;
+            }
+            actor = actor->next;
+        }
+    }
+    return false;
+}
+
+static std::string GetOrBindEnemyKey(const Actor* actor) {
+    auto it = sActorToKey.find(actor);
+    if (it != sActorToKey.end()) {
+        return it->second;
+    }
+    return GetEnemySyncKey(actor);
+}
+
 static Actor* FindMatchingEnemyActor(PlayState* play, const std::string& key, s16 actorId, s8 room, s16 listIndex,
                                      const Vec3f& homePos, const Vec3f& worldPos) {
     if (play == nullptr) {
         return nullptr;
+    }
+
+    auto boundIt = sKeyToActor.find(key);
+    if (boundIt != sKeyToActor.end()) {
+        if (IsLiveEnemyActor(play, boundIt->second) && boundIt->second->id == actorId) {
+            return boundIt->second;
+        }
+        sActorToKey.erase(boundIt->second);
+        sKeyToActor.erase(boundIt);
     }
 
     Actor* bestMatch = nullptr;
@@ -122,7 +159,7 @@ static Actor* FindMatchingEnemyActor(PlayState* play, const std::string& key, s1
         Actor* actor = play->actorCtx.actorLists[cat].first;
         while (actor != nullptr) {
             if (actor->update != nullptr && actor->id == actorId) {
-                std::string candidateKey = GetEnemySyncKey(actor);
+                std::string candidateKey = GetOrBindEnemyKey(actor);
                 if (candidateKey == key) {
                     return actor;
                 }
@@ -252,6 +289,8 @@ static void UpdateEnemyTargetNearestCoopPlayer(Actor* enemy, PlayState* play) {
 void Anchor::ResetEnemySyncState() {
     sSyncedEnemies.clear();
     sLocalEnemyTrackers.clear();
+    sKeyToActor.clear();
+    sActorToKey.clear();
     sSuppressSendDamageForKey.clear();
     sEnemyUpdateTickCounter = 0;
 }
@@ -273,7 +312,7 @@ void Anchor::OnEnemyActorUpdate(Actor* actor) {
         return;
     }
 
-    std::string key = GetEnemySyncKey(actor);
+    std::string key = GetOrBindEnemyKey(actor);
     auto& tracker = sLocalEnemyTrackers[actor];
     u8 curHealth = (u8)std::max<s16>(0, actor->colChkInfo.health);
 
@@ -299,6 +338,12 @@ void Anchor::OnEnemyActorUpdate(Actor* actor) {
     sSuppressSendDamageForKey.erase(key);
 
     if (IsHost()) {
+        if (curHealth > 0) {
+            auto deadIt = sSyncedEnemies.find(key);
+            if (deadIt != sSyncedEnemies.end()) {
+                deadIt->second.dead = false;
+            }
+        }
         // On Host: update enemy AI distance/yaw toward the nearest co-op player for next frame
         UpdateEnemyTargetNearestCoopPlayer(actor, gPlayState);
         return;
@@ -375,11 +420,20 @@ void Anchor::OnEnemyActorUpdate(Actor* actor) {
 void Anchor::OnEnemyActorKill(Actor* actor) {
     sLocalEnemyTrackers.erase(actor);
 
+    std::string key = GetOrBindEnemyKey(actor);
+    auto a2k = sActorToKey.find(actor);
+    if (a2k != sActorToKey.end()) {
+        auto k2a = sKeyToActor.find(a2k->second);
+        if (k2a != sKeyToActor.end() && k2a->second == actor) {
+            sKeyToActor.erase(k2a);
+        }
+        sActorToKey.erase(a2k);
+    }
+
     if (!isConnected || !IsSaveLoaded() || gPlayState == nullptr || !IsSyncableEnemy(actor)) {
         return;
     }
 
-    std::string key = GetEnemySyncKey(actor);
     auto it = sSyncedEnemies.find(key);
     if (it != sSyncedEnemies.end() && it->second.dead) {
         return;
@@ -434,10 +488,12 @@ void Anchor::SendPacket_EnemyUpdate() {
         while (actor != nullptr) {
             if (actor->update != nullptr) {
                 nlohmann::json e;
-                e["k"] = GetEnemySyncKey(actor);
+                e["k"] = GetOrBindEnemyKey(actor);
                 e["id"] = actor->id;
+                e["pr"] = actor->params;
                 e["rm"] = actor->room;
                 e["li"] = GetActorListIndex(actor);
+                e["h"] = actor->home.pos;
                 e["p"] = actor->world.pos;
                 e["sr"] = actor->shape.rot;
                 e["wr"] = actor->world.rot;
@@ -486,8 +542,12 @@ void Anchor::HandlePacket_EnemyUpdate(nlohmann::json payload) {
         SyncedEnemyState& state = sSyncedEnemies[key];
         state.sceneId = sceneId;
         state.actorId = e.value("id", (s16)0);
+        state.params = e.value("pr", (s16)0);
         state.room = e.value("rm", (s8)-1);
         state.listIndex = e.value("li", (s16)-1);
+        if (e.contains("h")) {
+            state.homePos = e["h"].get<Vec3f>();
+        }
         if (e.contains("p")) {
             state.targetPos = e["p"].get<Vec3f>();
         }
@@ -499,6 +559,48 @@ void Anchor::HandlePacket_EnemyUpdate(nlohmann::json payload) {
         }
         state.health = e.value("hp", (u8)0);
         state.lastUpdatedFrame = gPlayState->gameplayFrames;
+
+        if (state.health > 0) {
+            state.dead = false;
+            state.zeroHealthFrames = 0;
+
+            bool roomMatches = (state.room == -1 || state.room == gPlayState->roomCtx.curRoom.num ||
+                                state.room == gPlayState->roomCtx.prevRoom.num);
+            if (roomMatches) {
+                Actor* match = FindMatchingEnemyActor(gPlayState, key, state.actorId, state.room, state.listIndex,
+                                                      state.homePos, state.targetPos);
+                if (match != nullptr) {
+                    sKeyToActor[key] = match;
+                    sActorToKey[match] = key;
+                } else if (state.lastSpawnAttemptFrame == 0 ||
+                           (gPlayState->gameplayFrames - state.lastSpawnAttemptFrame) >= 30) {
+                    state.lastSpawnAttemptFrame = gPlayState->gameplayFrames;
+
+                    if (state.actorId >= 0 && state.actorId < ACTOR_ID_MAX &&
+                        gActorOverlayTable[state.actorId].profile != nullptr) {
+                        s16 objId = gActorOverlayTable[state.actorId].profile->objectId;
+                        if (objId == GAMEPLAY_KEEP || Object_GetSlot(&gPlayState->objectCtx, objId) >= 0) {
+                            Actor* spawned = Actor_Spawn(&gPlayState->actorCtx, gPlayState, state.actorId,
+                                                         state.targetPos.x, state.targetPos.y, state.targetPos.z,
+                                                         state.targetShapeRot.x, state.targetShapeRot.y,
+                                                         state.targetShapeRot.z, state.params);
+                            if (spawned != nullptr) {
+                                spawned->home.pos = state.homePos;
+                                spawned->room = state.room;
+                                spawned->colChkInfo.health = state.health;
+                                sKeyToActor[key] = spawned;
+                                sActorToKey[spawned] = key;
+
+                                auto& tracker = sLocalEnemyTrackers[spawned];
+                                tracker.initialized = true;
+                                tracker.lastHealth = state.health;
+                                tracker.lastColorFilterTimer = spawned->colorFilterTimer;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -512,7 +614,7 @@ void Anchor::SendPacket_EnemyDamage(Actor* actor, u8 newHealth, u8 damage, u8 da
     payload["type"] = ENEMY_DAMAGE;
     payload["quiet"] = true;
     payload["sceneId"] = gPlayState->sceneId;
-    payload["k"] = GetEnemySyncKey(actor);
+    payload["k"] = GetOrBindEnemyKey(actor);
     payload["id"] = actor->id;
     payload["rm"] = actor->room;
     payload["li"] = GetActorListIndex(actor);
@@ -590,7 +692,7 @@ void Anchor::SendPacket_EnemyKill(Actor* actor) {
     payload["type"] = ENEMY_KILL;
     payload["quiet"] = true;
     payload["sceneId"] = gPlayState->sceneId;
-    payload["k"] = GetEnemySyncKey(actor);
+    payload["k"] = GetOrBindEnemyKey(actor);
     payload["id"] = actor->id;
     payload["rm"] = actor->room;
     payload["li"] = GetActorListIndex(actor);

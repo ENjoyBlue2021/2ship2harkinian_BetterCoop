@@ -47,12 +47,14 @@ void Anchor::Enable() {
         roomState.ownerClientId = 0;
     }
     ResetHostTimeSyncTracker();
+    ResetDungeonItemSyncTracker();
 }
 
 void Anchor::Disable() {
     Network::Disable();
     lanServer.Stop();
     ResetHostTimeSyncTracker();
+    ResetDungeonItemSyncTracker();
 
     clients.clear();
     RefreshClientActors();
@@ -208,6 +210,16 @@ void Anchor::RegisterHooks() {
         }
     });
 
+    COND_VB_SHOULD(VB_GIVE_ITEM_FROM_ITEM00, isConnected, {
+        if (*should) {
+            EnItem00* item00 = va_arg(args, EnItem00*);
+            if (item00 != nullptr &&
+                (item00->actor.params == ITEM00_FLEXIBLE || item00->actor.params == ITEM00_BIG_FAIRY)) {
+                Anchor::Instance->SendPacket_SyncFairyHeal();
+            }
+        }
+    });
+
     COND_HOOK(OnFlagSet, isConnected, [&](FlagType flagType, u32 flag) {
         if (!isApplyingRemoteFlag && IsSaveLoaded()) {
             SendPacket_SetFlag(SCENE_MAX, static_cast<s16>(flagType), static_cast<s16>(flag));
@@ -234,6 +246,7 @@ void Anchor::RegisterHooks() {
 
     COND_HOOK(OnGameStateMainStart, isConnected, [&]() {
         TickHostTimeSync();
+        TickDungeonItemSync();
 
         std::queue<nlohmann::json> packetQueue;
         Anchor::Instance->SwapIncomingPacketQueue(packetQueue);

@@ -172,6 +172,9 @@ class Anchor : public Network {
     void TickEnemySync();
     void OnEnemyActorUpdate(Actor* actor);
     void OnEnemyActorKill(Actor* actor);
+    void ResetDungeonItemSyncTracker();
+    void SnapshotDungeonItems();
+    void TickDungeonItemSync();
 
     void SendPacket_ClearTeamState(std::string teamId);
     void SendPacket_DamagePlayer(u32 clientId, u8 damageEffect, u8 damage);
@@ -191,9 +194,11 @@ class Anchor : public Network {
     void SendPacket_SummonPlayer(uint32_t targetClientId);
     void SendPacket_SyncTime();
     void SendPacket_SyncVanillaItem(u8 item);
+    void SendPacket_SyncFairyHeal();
     void SendPacket_TeleportTo(u32 clientId);
     void SendPacket_UnsetFlag(s16 sceneId, s16 flagType, s16 flag);
     void SendPacket_UpdateClientState();
+    void SendPacket_UpdateDungeonItems(u16 mapIndex);
     void SendPacket_UpdateDungeonItems();
     void SendPacket_UpdateRoomState();
     void SendPacket_UpdateTeamState(std::string targetTeamId = "");

@@ -13,23 +13,25 @@ extern PlayState* gPlayState;
 /**
  * SYNC_VANILLA_ITEM
  *
- * Syncs vanilla (non-randomizer) item acquisitions in real time via Item_Give.
- * Skips pure consumables (hearts, rupees, ammo drops) so players keep independent refills
- * while sharing masks, equipment, songs, bottles, upgrades, heart pieces/containers, and dungeon items.
+ * Syncs ALL vanilla (non-randomizer) item acquisitions in real time via Item_Give,
+ * including enemy/world drops (rupees, hearts, magic jars, arrows, bombs, sticks, nuts, fairies),
+ * heart pieces/containers, dungeon keys/maps/compasses/boss keys, skulltula tokens, masks,
+ * equipment, songs, bottles, and upgrades.
  */
 
 static bool ShouldSyncVanillaItem(u8 item) {
     if (item == ITEM_NONE || item == ITEM_SHIP) {
         return false;
     }
-    // Skip magic jars, invalid IDs, recovery hearts, rupees, and raw ammo refills
-    if (item == ITEM_MAGIC_JAR_SMALL || item == ITEM_MAGIC_JAR_BIG) {
-        return false;
-    }
-    if (item >= ITEM_INVALID_1 && item <= ITEM_BOMBCHUS_5) {
+    if (item >= ITEM_INVALID_1 && item <= ITEM_INVALID_7) {
         return false;
     }
     return true;
+}
+
+static bool IsSilentOrSelfFeedbackConsumable(u8 item) {
+    return item == ITEM_RECOVERY_HEART || item == ITEM_MAGIC_JAR_SMALL || item == ITEM_MAGIC_JAR_BIG ||
+           (item >= ITEM_RUPEE_GREEN && item <= ITEM_RUPEE_HUGE);
 }
 
 void Anchor::SendPacket_SyncVanillaItem(u8 item) {
@@ -45,12 +47,32 @@ void Anchor::SendPacket_SyncVanillaItem(u8 item) {
     payload["type"] = SYNC_VANILLA_ITEM;
     payload["item"] = item;
     payload["mapIndex"] = gSaveContext.mapIndex;
+    payload["sceneId"] = (gPlayState != nullptr) ? gPlayState->sceneId : static_cast<s16>(SCENE_MAX);
+
+    QueueOutgoingPacket(payload);
+}
+
+void Anchor::SendPacket_SyncFairyHeal() {
+    if (isApplyingRemoteItem || !IsSaveLoaded() || !roomState.syncItemsAndFlags || IS_RANDO) {
+        return;
+    }
+
+    nlohmann::json payload;
+    payload["type"] = SYNC_VANILLA_ITEM;
+    payload["fairyHeal"] = true;
 
     QueueOutgoingPacket(payload);
 }
 
 void Anchor::HandlePacket_SyncVanillaItem(nlohmann::json payload) {
     if (!IsSaveLoaded() || !roomState.syncItemsAndFlags || IS_RANDO) {
+        return;
+    }
+
+    if (payload.value("fairyHeal", false)) {
+        if (gPlayState != nullptr) {
+            Health_ChangeBy(gPlayState, 0x70);
+        }
         return;
     }
 
@@ -65,8 +87,19 @@ void Anchor::HandlePacket_SyncVanillaItem(nlohmann::json payload) {
     }
 
     isApplyingRemoteItem = true;
-    Item_Give(gPlayState, item);
+    if (item == ITEM_SKULL_TOKEN && payload.contains("sceneId")) {
+        s16 senderSceneId = payload["sceneId"].get<s16>();
+        SET_QUEST_ITEM(QUEST_QUIVER);
+        Inventory_IncrementSkullTokenCount(senderSceneId);
+    } else {
+        Item_Give(gPlayState, item);
+    }
     isApplyingRemoteItem = false;
 
     gSaveContext.mapIndex = prevMapIndex;
+    SnapshotDungeonItems();
+
+    if (!IsSilentOrSelfFeedbackConsumable(item)) {
+        Audio_PlaySfx(NA_SE_SY_GET_ITEM);
+    }
 }

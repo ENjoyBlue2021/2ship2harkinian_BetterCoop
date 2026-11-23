@@ -95,6 +95,32 @@ void Anchor::HandlePacket_SetFlag(nlohmann::json payload) {
                 u32 wordIdx = (flag & ~0x1F) >> 5;
                 if (inCurrentScene && wordIdx < ARRAY_COUNT(gPlayState->actorCtx.sceneFlags.collectible)) {
                     gPlayState->actorCtx.sceneFlags.collectible[wordIdx] |= bit;
+
+                    // Remove any live freestanding collectible (heart piece, small key, rupee) or stray fairy
+                    // in the current scene matching this collectible flag so it cannot be picked up twice.
+                    Actor* actor = gPlayState->actorCtx.actorLists[ACTORCAT_MISC].first;
+                    while (actor != nullptr) {
+                        Actor* next = actor->next;
+                        if (actor->id == ACTOR_EN_ITEM00 && actor->update != nullptr) {
+                            EnItem00* item00 = reinterpret_cast<EnItem00*>(actor);
+                            if (item00->collectibleFlag == static_cast<s16>(flag)) {
+                                Actor_Kill(actor);
+                            }
+                        }
+                        actor = next;
+                    }
+
+                    Actor* fairy = gPlayState->actorCtx.actorLists[ACTORCAT_ITEMACTION].first;
+                    while (fairy != nullptr) {
+                        Actor* next = fairy->next;
+                        if (fairy->id == ACTOR_EN_ELFORG && fairy->update != nullptr) {
+                            u16 fairyFlag = static_cast<u16>((fairy->params & 0xFE00) >> 9);
+                            if (fairyFlag == flag) {
+                                Actor_Kill(fairy);
+                            }
+                        }
+                        fairy = next;
+                    }
                 }
                 break;
             }
