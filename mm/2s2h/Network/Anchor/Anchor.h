@@ -109,6 +109,7 @@ class Anchor : public Network {
     void HandlePacket_ServerMessage(nlohmann::json payload);
     void HandlePacket_SetCheckStatus(nlohmann::json payload);
     void HandlePacket_SetFlag(nlohmann::json payload);
+    void HandlePacket_SyncProgress(nlohmann::json payload);
     void HandlePacket_SyncTime(nlohmann::json payload);
     void HandlePacket_SyncVanillaItem(nlohmann::json payload);
     void HandlePacket_TeleportTo(nlohmann::json payload);
@@ -143,6 +144,7 @@ class Anchor : public Network {
     inline static const std::string SERVER_MESSAGE = "SERVER_MESSAGE";
     inline static const std::string SET_CHECK_STATUS = "SET_CHECK_STATUS";
     inline static const std::string SET_FLAG = "SET_FLAG";
+    inline static const std::string SYNC_PROGRESS = "SYNC_PROGRESS";
     inline static const std::string SYNC_TIME = "SYNC_TIME";
     inline static const std::string SYNC_VANILLA_ITEM = "SYNC_VANILLA_ITEM";
     inline static const std::string TELEPORT_TO = "TELEPORT_TO";
@@ -175,6 +177,9 @@ class Anchor : public Network {
     void ResetDungeonItemSyncTracker();
     void SnapshotDungeonItems();
     void TickDungeonItemSync();
+    void ResetProgressSyncTracker();
+    void SnapshotProgressState();
+    void TickProgressSync();
 
     void SendPacket_ClearTeamState(std::string teamId);
     void SendPacket_DamagePlayer(u32 clientId, u8 damageEffect, u8 damage);

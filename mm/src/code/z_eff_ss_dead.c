@@ -8,6 +8,10 @@ void func_800AE2A0(PlayState* play, Color_RGBA8* color, s16 arg2, s16 arg3) {
 
     OPEN_DISPS(play->state.gfxCtx);
 
+    if (arg3 == 0) {
+        arg3 = 1;
+    }
+
     displayListHead = POLY_OPA_DISP;
     cos = Math_CosS((0x8000 / arg3) * arg2);
     absCos = fabsf(cos);
@@ -32,6 +36,10 @@ void func_800AE434(PlayState* play, Color_RGBA8* color, s16 arg2, s16 arg3) {
     f32 cos;
 
     OPEN_DISPS(play->state.gfxCtx);
+
+    if (arg3 == 0) {
+        arg3 = 1;
+    }
 
     cos = Math_CosS((0x4000 / arg3) * arg2);
     displayListHead = POLY_OPA_DISP;
@@ -63,6 +71,10 @@ void func_800AE5E4(PlayState* play, Color_RGBA8* color, s16 arg2, s16 arg3) {
 
     OPEN_DISPS(play->state.gfxCtx);
 
+    if (arg3 == 0) {
+        arg3 = 1;
+    }
+
     displayListHead = POLY_XLU_DISP;
     cos = Math_CosS((0x8000 / arg3) * arg2);
     absCos = fabsf(cos);
@@ -89,6 +101,10 @@ void func_800AE778(PlayState* play, Color_RGBA8* color, s16 arg2, s16 arg3) {
     OPEN_DISPS(play->state.gfxCtx);
 
     displayListHead = POLY_XLU_DISP;
+    if (arg3 == 0) {
+        arg3 = 1;
+    }
+
     cos = Math_CosS((0x4000 / arg3) * arg2);
 
     gDPPipeSync(displayListHead++);

@@ -98,6 +98,7 @@ void Anchor::HandlePacket_SyncVanillaItem(nlohmann::json payload) {
 
     gSaveContext.mapIndex = prevMapIndex;
     SnapshotDungeonItems();
+    SnapshotProgressState();
 
     if (!IsSilentOrSelfFeedbackConsumable(item)) {
         Audio_PlaySfx(NA_SE_SY_GET_ITEM);

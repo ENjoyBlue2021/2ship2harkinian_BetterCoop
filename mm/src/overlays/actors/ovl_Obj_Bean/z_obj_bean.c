@@ -545,6 +545,20 @@ void func_80937FB0(ObjBean* this) {
 void func_80937FC8(ObjBean* this, PlayState* play) {
     this->unk_1E8(this);
 
+    if (this->unk_1FF != 0) {
+        if (Flags_GetSwitch(play, OBJBEAN_GET_SWITCH_FLAG_2(&this->dyna.actor, 1))) {
+            func_809375C8(this, play);
+            this->unk_1E4 = 6;
+            func_80938670(this);
+            return;
+        }
+        if (!(this->unk_1FE & 4) && Flags_GetSwitch(play, OBJBEAN_GET_SWITCH_FLAG_2(&this->dyna.actor, 0))) {
+            this->unk_1FE |= 4;
+            func_80938408(this);
+            return;
+        }
+    }
+
     if (Actor_TalkOfferAccepted(&this->dyna.actor, &play->state)) {
         if (Player_GetExchangeItemAction(play) == PLAYER_IA_MAGIC_BEANS) {
             func_809383B4(this);

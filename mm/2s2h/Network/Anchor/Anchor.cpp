@@ -48,6 +48,7 @@ void Anchor::Enable() {
     }
     ResetHostTimeSyncTracker();
     ResetDungeonItemSyncTracker();
+    ResetProgressSyncTracker();
 }
 
 void Anchor::Disable() {
@@ -55,6 +56,7 @@ void Anchor::Disable() {
     lanServer.Stop();
     ResetHostTimeSyncTracker();
     ResetDungeonItemSyncTracker();
+    ResetProgressSyncTracker();
 
     clients.clear();
     RefreshClientActors();
@@ -126,6 +128,8 @@ void Anchor::ProcessIncomingPacket(nlohmann::json payload) {
         HandlePacket_SetCheckStatus(payload);
     else if (packetType == SET_FLAG)
         HandlePacket_SetFlag(payload);
+    else if (packetType == SYNC_PROGRESS)
+        HandlePacket_SyncProgress(payload);
     else if (packetType == SYNC_TIME)
         HandlePacket_SyncTime(payload);
     else if (packetType == SYNC_VANILLA_ITEM)
@@ -247,6 +251,7 @@ void Anchor::RegisterHooks() {
     COND_HOOK(OnGameStateMainStart, isConnected, [&]() {
         TickHostTimeSync();
         TickDungeonItemSync();
+        TickProgressSync();
 
         std::queue<nlohmann::json> packetQueue;
         Anchor::Instance->SwapIncomingPacketQueue(packetQueue);
@@ -262,6 +267,15 @@ void Anchor::RegisterHooks() {
         while (!packetQueue.empty()) {
             nlohmann::json payload = packetQueue.front();
             packetQueue.pop();
+            if (!IsSaveLoaded() && payload.contains("type") && payload["type"].is_string()) {
+                const std::string& pType = payload["type"].get_ref<const std::string&>();
+                if (pType == SET_FLAG || pType == UNSET_FLAG || pType == SYNC_VANILLA_ITEM ||
+                    pType == UPDATE_DUNGEON_ITEMS || pType == SYNC_PROGRESS || pType == GIVE_ITEM ||
+                    pType == SET_CHECK_STATUS || pType == UPDATE_TEAM_STATE) {
+                    queuedPacketsFromTeamState.push(std::move(payload));
+                    continue;
+                }
+            }
             try {
                 Anchor::Instance->ProcessIncomingPacket(payload);
             } catch (const std::exception& e) {

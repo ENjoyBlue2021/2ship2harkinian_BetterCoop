@@ -216,6 +216,7 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
             .message = "Save updated from Host",
         });
         SnapshotDungeonItems();
+        SnapshotProgressState();
         Rando::CheckTracker::OnFileLoad();
         Rando::ActorBehavior::OnFileLoad();
         ShipInit::Init("IS_RANDO");

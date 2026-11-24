@@ -669,8 +669,17 @@ void Anchor::HandlePacket_EnemyDamage(nlohmann::json payload) {
     actor->colChkInfo.health = newHealth;
     actor->colChkInfo.damage = damage;
     actor->colChkInfo.damageEffect = damageEffect;
-    actor->colorFilterParams = (colorFilterParams != 0) ? colorFilterParams : 0x4000;
-    actor->colorFilterTimer = std::max<u8>(colorFilterTimer, 8);
+    u8 duration = COLORFILTER_GET_DURATION(colorFilterParams);
+    u8 timer = std::max<u8>(colorFilterTimer, 8);
+    if (colorFilterParams == 0 || duration == 0) {
+        Actor_SetColorFilter(actor, COLORFILTER_COLORFLAG_RED, 255, COLORFILTER_BUFFLAG_OPA, timer);
+    } else {
+        if (duration < timer) {
+            colorFilterParams = (colorFilterParams & 0xFF00) | timer;
+        }
+        actor->colorFilterParams = colorFilterParams;
+        actor->colorFilterTimer = timer;
+    }
 
     auto& tracker = sLocalEnemyTrackers[actor];
     tracker.initialized = true;

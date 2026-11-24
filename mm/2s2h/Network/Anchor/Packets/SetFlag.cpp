@@ -60,14 +60,21 @@ void Anchor::HandlePacket_SetFlag(nlohmann::json payload) {
                 break;
         }
     } else if (sceneId >= 0 && sceneId < ARRAY_COUNT(gSaveContext.cycleSceneFlags)) {
+        s16 origSceneId = Play_GetOriginalSceneId(sceneId);
+        if (origSceneId < 0 || origSceneId >= ARRAY_COUNT(gSaveContext.cycleSceneFlags)) {
+            origSceneId = sceneId;
+        }
         u32 bit = 1U << (flag & 0x1F);
         bool inCurrentScene =
             (gPlayState != nullptr) &&
-            (Play_GetOriginalSceneId(gPlayState->sceneId) == sceneId || gPlayState->sceneId == sceneId);
+            (Play_GetOriginalSceneId(gPlayState->sceneId) == origSceneId || gPlayState->sceneId == sceneId);
 
         switch (static_cast<FlagType>(flagType)) {
             case FLAG_CYCL_SCENE_CHEST:
-                gSaveContext.cycleSceneFlags[sceneId].chest |= bit;
+                gSaveContext.cycleSceneFlags[origSceneId].chest |= bit;
+                if (sceneId != origSceneId) {
+                    gSaveContext.cycleSceneFlags[sceneId].chest |= bit;
+                }
                 if (inCurrentScene) {
                     gPlayState->actorCtx.sceneFlags.chest |= bit;
                 }
@@ -75,9 +82,15 @@ void Anchor::HandlePacket_SetFlag(nlohmann::json payload) {
             case FLAG_CYCL_SCENE_SWITCH: {
                 u32 wordIdx = (flag & ~0x1F) >> 5;
                 if (wordIdx == 0) {
-                    gSaveContext.cycleSceneFlags[sceneId].switch0 |= bit;
+                    gSaveContext.cycleSceneFlags[origSceneId].switch0 |= bit;
+                    if (sceneId != origSceneId) {
+                        gSaveContext.cycleSceneFlags[sceneId].switch0 |= bit;
+                    }
                 } else if (wordIdx == 1) {
-                    gSaveContext.cycleSceneFlags[sceneId].switch1 |= bit;
+                    gSaveContext.cycleSceneFlags[origSceneId].switch1 |= bit;
+                    if (sceneId != origSceneId) {
+                        gSaveContext.cycleSceneFlags[sceneId].switch1 |= bit;
+                    }
                 }
                 if (inCurrentScene && wordIdx < ARRAY_COUNT(gPlayState->actorCtx.sceneFlags.switches)) {
                     gPlayState->actorCtx.sceneFlags.switches[wordIdx] |= bit;
@@ -85,13 +98,19 @@ void Anchor::HandlePacket_SetFlag(nlohmann::json payload) {
                 break;
             }
             case FLAG_CYCL_SCENE_CLEARED_ROOM:
-                gSaveContext.cycleSceneFlags[sceneId].clearedRoom |= bit;
+                gSaveContext.cycleSceneFlags[origSceneId].clearedRoom |= bit;
+                if (sceneId != origSceneId) {
+                    gSaveContext.cycleSceneFlags[sceneId].clearedRoom |= bit;
+                }
                 if (inCurrentScene) {
                     gPlayState->actorCtx.sceneFlags.clearedRoom |= bit;
                 }
                 break;
             case FLAG_CYCL_SCENE_COLLECTIBLE: {
-                gSaveContext.cycleSceneFlags[sceneId].collectible |= bit;
+                gSaveContext.cycleSceneFlags[origSceneId].collectible |= bit;
+                if (sceneId != origSceneId) {
+                    gSaveContext.cycleSceneFlags[sceneId].collectible |= bit;
+                }
                 u32 wordIdx = (flag & ~0x1F) >> 5;
                 if (inCurrentScene && wordIdx < ARRAY_COUNT(gPlayState->actorCtx.sceneFlags.collectible)) {
                     gPlayState->actorCtx.sceneFlags.collectible[wordIdx] |= bit;
