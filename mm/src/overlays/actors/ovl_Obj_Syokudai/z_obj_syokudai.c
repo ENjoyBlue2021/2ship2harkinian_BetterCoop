@@ -115,6 +115,7 @@ void ObjSyokudai_Init(Actor* thisx, PlayState* play) {
         sNumLitTorchesInGroup = 0;
     }
     this->flameTexScroll = (u32)(Rand_ZeroOne() * OBJ_SYOKUDAI_SNUFF_DEFAULT);
+    this->remoteLightPending = false;
     Actor_SetFocus(thisx, 60.0f);
 }
 
@@ -202,6 +203,14 @@ void ObjSyokudai_Update(Actor* thisx, PlayState* play2) {
                 stickTipSeparationVec.y -= OBJ_SYOKUDAI_STICK_IGNITION_HEIGHT;
                 if (SQXYZ(stickTipSeparationVec) < SQ(OBJ_SYOKUDAI_STICK_IGNITION_RADIUS)) {
                     interaction = OBJ_SYOKUDAI_INTERACTION_STICK;
+                }
+            }
+            // 2S2H [Co-op] Trigger fire-arrow ignition path when a partner lights this torch
+            if (this->remoteLightPending) {
+                this->remoteLightPending = false;
+                if (this->snuffTimer == OBJ_SYOKUDAI_SNUFF_OUT) {
+                    interaction = OBJ_SYOKUDAI_INTERACTION_ARROW_FA;
+                    flameColliderACDmgFlags = 0x800;
                 }
             }
             if (interaction != OBJ_SYOKUDAI_INTERACTION_NONE) {

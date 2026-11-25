@@ -21,6 +21,7 @@ typedef struct ObjSyokudai {
     /* 0x1DF */ s8 pendingAction;
     /* 0x1E0 */ LightNode* lightNode;
     /* 0x1E4 */ LightInfo lightInfo;
+    /* 0x1F4 */ s8 remoteLightPending; // 2S2H [Co-op]
 } ObjSyokudai; // size = 0x1F4
 
 typedef enum {

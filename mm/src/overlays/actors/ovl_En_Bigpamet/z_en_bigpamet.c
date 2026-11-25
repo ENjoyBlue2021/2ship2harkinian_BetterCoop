@@ -750,6 +750,12 @@ void EnBigpamet_Update(Actor* thisx, PlayState* play) {
     s32 pad;
     EnBigpamet* this = (EnBigpamet*)thisx;
 
+    // 2S2H [Co-op] Snapper must have its Gekko parent
+    if (this->actor.parent == NULL) {
+        Actor_Kill(&this->actor);
+        return;
+    }
+
     func_80A2768C(this);
     func_80A29028(this, play);
 

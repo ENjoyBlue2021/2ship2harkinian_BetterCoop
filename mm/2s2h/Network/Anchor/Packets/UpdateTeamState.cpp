@@ -114,7 +114,7 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
         return;
     }
 
-    if (payload.contains("state")) {
+    if (payload.contains("state") && payload["state"].is_object() && !payload["state"].empty()) {
         // Hack to reduce the amount of bytes for this data
         if (IS_RANDO && payload["state"]["shipSaveInfo"].contains("rando")) {
             auto stuff =
@@ -220,6 +220,8 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
         Rando::CheckTracker::OnFileLoad();
         Rando::ActorBehavior::OnFileLoad();
         ShipInit::Init("IS_RANDO");
+        awaitingHostState = false;
+        hostStateRequestTimer = 0;
     }
 
     if (payload.contains("queue") && payload["queue"].is_array()) {

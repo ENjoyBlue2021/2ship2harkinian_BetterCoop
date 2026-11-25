@@ -102,6 +102,7 @@ class Anchor : public Network {
     void HandlePacket_EnemyUpdate(nlohmann::json payload);
     void HandlePacket_GameComplete(nlohmann::json payload);
     void HandlePacket_GiveItem(nlohmann::json payload);
+    void HandlePacket_HealPlayer(nlohmann::json payload);
     void HandlePacket_PlayerSfx(nlohmann::json payload);
     void HandlePacket_PlayerUpdate(nlohmann::json payload);
     void HandlePacket_RequestTeamState(nlohmann::json payload);
@@ -113,6 +114,7 @@ class Anchor : public Network {
     void HandlePacket_SyncTime(nlohmann::json payload);
     void HandlePacket_SyncVanillaItem(nlohmann::json payload);
     void HandlePacket_TeleportTo(nlohmann::json payload);
+    void HandlePacket_TorchLit(nlohmann::json payload);
     void HandlePacket_UnsetFlag(nlohmann::json payload);
     void HandlePacket_UpdateClientState(nlohmann::json payload);
     void HandlePacket_UpdateDungeonItems(nlohmann::json payload);
@@ -124,6 +126,9 @@ class Anchor : public Network {
     LanHostServer lanServer;
     bool isApplyingRemoteFlag = false;
     bool isApplyingRemoteItem = false;
+    bool awaitingHostState = false;
+    bool pendingHostStatePush = false;
+    u32 hostStateRequestTimer = 0;
     inline static const std::string clientVersion =
         std::string((char*)gBuildVersion) + " | " + (char*)gGitBranch + " | " + (char*)gGitCommitHash;
 
@@ -137,6 +142,7 @@ class Anchor : public Network {
     inline static const std::string GAME_COMPLETE = "GAME_COMPLETE";
     inline static const std::string GIVE_ITEM = "GIVE_ITEM";
     inline static const std::string HANDSHAKE = "HANDSHAKE";
+    inline static const std::string HEAL_PLAYER = "HEAL_PLAYER";
     inline static const std::string PLAYER_SFX = "PLAYER_SFX";
     inline static const std::string PLAYER_UPDATE = "PLAYER_UPDATE";
     inline static const std::string REQUEST_TEAM_STATE = "REQUEST_TEAM_STATE";
@@ -148,6 +154,7 @@ class Anchor : public Network {
     inline static const std::string SYNC_TIME = "SYNC_TIME";
     inline static const std::string SYNC_VANILLA_ITEM = "SYNC_VANILLA_ITEM";
     inline static const std::string TELEPORT_TO = "TELEPORT_TO";
+    inline static const std::string TORCH_LIT = "TORCH_LIT";
     inline static const std::string UNSET_FLAG = "UNSET_FLAG";
     inline static const std::string UPDATE_CLIENT_STATE = "UPDATE_CLIENT_STATE";
     inline static const std::string UPDATE_DUNGEON_ITEMS = "UPDATE_DUNGEON_ITEMS";
@@ -180,6 +187,8 @@ class Anchor : public Network {
     void ResetProgressSyncTracker();
     void SnapshotProgressState();
     void TickProgressSync();
+    void ResetTorchSyncState();
+    void OnTorchActorUpdate(Actor* actor);
 
     void SendPacket_ClearTeamState(std::string teamId);
     void SendPacket_DamagePlayer(u32 clientId, u8 damageEffect, u8 damage);
@@ -190,6 +199,7 @@ class Anchor : public Network {
     void SendPacket_GameComplete();
     void SendPacket_GiveItem(u16 modId, s16 getItemId, std::string targetTeamId = "");
     void SendPacket_Handshake();
+    void SendPacket_HealPlayer(uint32_t targetClientId);
     void SendPacket_PlayerSfx(u16 sfxId);
     void SendPacket_PlayerUpdate();
     void SendPacket_RequestTeamState();
@@ -201,9 +211,11 @@ class Anchor : public Network {
     void SendPacket_SyncVanillaItem(u8 item);
     void SendPacket_SyncFairyHeal();
     void SendPacket_TeleportTo(u32 clientId);
+    void SendPacket_TorchLit(Actor* actor);
     void SendPacket_UnsetFlag(s16 sceneId, s16 flagType, s16 flag);
     void SendPacket_UpdateClientState();
     void SendPacket_UpdateDungeonItems(u16 mapIndex);
+    void SendPacket_UpdateDungeonItemsDelta(u16 mapIndex, u8 itemsAdd, u8 itemsRemove, s8 keysDelta, s8 fairiesDelta);
     void SendPacket_UpdateDungeonItems();
     void SendPacket_UpdateRoomState();
     void SendPacket_UpdateTeamState(std::string targetTeamId = "");

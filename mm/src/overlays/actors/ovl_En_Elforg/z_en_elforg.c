@@ -450,10 +450,31 @@ void EnElforg_ClockTownFairyCollected(EnElforg* this, PlayState* play) {
     }
 }
 
+// 2S2H [Co-op] Check whether this stray fairy's collection flag has been set (e.g. by a partner)
+static s32 EnElforg_IsCollectFlagSet(EnElforg* this, PlayState* play) {
+    switch (STRAY_FAIRY_TYPE(&this->actor)) {
+        case STRAY_FAIRY_TYPE_COLLECTIBLE:
+            return Flags_GetCollectible(play, STRAY_FAIRY_GET_FLAG(&this->actor));
+
+        case STRAY_FAIRY_TYPE_CHEST:
+            return Flags_GetTreasure(play, STRAY_FAIRY_GET_FLAG(&this->actor));
+
+        default:
+            return Flags_GetSwitch(play, STRAY_FAIRY_GET_FLAG(&this->actor));
+    }
+}
+
 void EnElforg_FreeFloating(EnElforg* this, PlayState* play) {
     Vec3f pos;
     f32 scaledYDistance;
     Player* player = GET_PLAYER(play);
+
+    // 2S2H [Co-op] Despawn if a co-op partner already collected this stray fairy
+    if (Map_IsInDungeonOrBossScene(play) && STRAY_FAIRY_TYPE(&this->actor) != STRAY_FAIRY_TYPE_CLOCK_TOWN &&
+        STRAY_FAIRY_TYPE(&this->actor) != STRAY_FAIRY_TYPE_CHEST && EnElforg_IsCollectFlagSet(this, play)) {
+        Actor_Kill(&this->actor);
+        return;
+    }
 
     SkelAnime_Update(&this->skelAnime);
 

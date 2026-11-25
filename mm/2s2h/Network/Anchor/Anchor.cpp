@@ -57,6 +57,9 @@ void Anchor::Disable() {
     ResetHostTimeSyncTracker();
     ResetDungeonItemSyncTracker();
     ResetProgressSyncTracker();
+    awaitingHostState = false;
+    pendingHostStatePush = false;
+    hostStateRequestTimer = 0;
 
     clients.clear();
     RefreshClientActors();
@@ -67,6 +70,10 @@ void Anchor::OnConnected() {
     RegisterHooks();
 
     if (IsSaveLoaded()) {
+        if (!IsHost()) {
+            awaitingHostState = true;
+            hostStateRequestTimer = 0;
+        }
         SendPacket_RequestTeamState();
     }
 }
@@ -112,6 +119,8 @@ void Anchor::ProcessIncomingPacket(nlohmann::json payload) {
         HandlePacket_GameComplete(payload);
     else if (packetType == GIVE_ITEM)
         HandlePacket_GiveItem(payload);
+    else if (packetType == HEAL_PLAYER)
+        HandlePacket_HealPlayer(payload);
     else if (packetType == PLAYER_SFX)
         HandlePacket_PlayerSfx(payload);
     else if (packetType == PLAYER_UPDATE)
@@ -136,6 +145,8 @@ void Anchor::ProcessIncomingPacket(nlohmann::json payload) {
         HandlePacket_SyncVanillaItem(payload);
     else if (packetType == TELEPORT_TO)
         HandlePacket_TeleportTo(payload);
+    else if (packetType == TORCH_LIT)
+        HandlePacket_TorchLit(payload);
     else if (packetType == UNSET_FLAG)
         HandlePacket_UnsetFlag(payload);
     else if (packetType == UPDATE_CLIENT_STATE)
@@ -151,6 +162,7 @@ static bool justReset = false;
 void Anchor::RegisterHooks() {
     COND_HOOK(OnSceneSpawnActors, isConnected, [&]() {
         ResetEnemySyncState();
+        ResetTorchSyncState();
         SendPacket_UpdateClientState();
         justReset = false;
         shouldRefreshActors = true;
@@ -183,11 +195,21 @@ void Anchor::RegisterHooks() {
 
     COND_HOOK(OnActorUpdate, isConnected, [&](Actor* actor) { OnEnemyActorUpdate(actor); });
 
+    COND_ID_HOOK(OnActorUpdate, ACTOR_OBJ_SYOKUDAI, isConnected, [&](Actor* actor) { OnTorchActorUpdate(actor); });
+
     COND_HOOK(OnActorKill, isConnected, [&](Actor* actor) { OnEnemyActorKill(actor); });
 
     COND_HOOK(OnPlayerSfx, isConnected, [&](u16 sfxId) { SendPacket_PlayerSfx(sfxId); });
 
-    COND_HOOK(OnSaveLoad, isConnected, [&](s16 fileNum) { SendPacket_RequestTeamState(); });
+    COND_HOOK(OnSaveLoad, isConnected, [&](s16 fileNum) {
+        if (IsHost()) {
+            pendingHostStatePush = true;
+        } else {
+            awaitingHostState = true;
+            hostStateRequestTimer = 0;
+            SendPacket_RequestTeamState();
+        }
+    });
 
     COND_HOOK(OnConsoleLogoUpdate, isConnected, [&]() {
         if (!justReset) {
@@ -197,25 +219,25 @@ void Anchor::RegisterHooks() {
     });
 
     COND_HOOK(AfterOwlSave, isConnected, [&]() {
-        if (gPlayState != NULL) {
+        if (gPlayState != NULL && (IsHost() || !awaitingHostState)) {
             SendPacket_UpdateTeamState(CVarGetString("gNetwork.Anchor.TeamId", "default"));
         }
     });
 
     COND_HOOK(AfterEndOfCycleSave, isConnected, [&]() {
-        if (gPlayState != NULL) {
+        if (gPlayState != NULL && (IsHost() || !awaitingHostState)) {
             SendPacket_UpdateTeamState(CVarGetString("gNetwork.Anchor.TeamId", "default"));
         }
     });
 
     COND_HOOK(OnItemGive, isConnected, [&](u8 item) {
-        if (!isApplyingRemoteItem && IsSaveLoaded()) {
+        if (!isApplyingRemoteItem && IsSaveLoaded() && (IsHost() || !awaitingHostState)) {
             SendPacket_SyncVanillaItem(item);
         }
     });
 
     COND_VB_SHOULD(VB_GIVE_ITEM_FROM_ITEM00, isConnected, {
-        if (*should) {
+        if (*should && (Anchor::Instance->IsHost() || !Anchor::Instance->awaitingHostState)) {
             EnItem00* item00 = va_arg(args, EnItem00*);
             if (item00 != nullptr &&
                 (item00->actor.params == ITEM00_FLEXIBLE || item00->actor.params == ITEM00_BIG_FAIRY)) {
@@ -225,30 +247,42 @@ void Anchor::RegisterHooks() {
     });
 
     COND_HOOK(OnFlagSet, isConnected, [&](FlagType flagType, u32 flag) {
-        if (!isApplyingRemoteFlag && IsSaveLoaded()) {
+        if (!isApplyingRemoteFlag && IsSaveLoaded() && (IsHost() || !awaitingHostState)) {
             SendPacket_SetFlag(SCENE_MAX, static_cast<s16>(flagType), static_cast<s16>(flag));
         }
     });
 
     COND_HOOK(OnFlagUnset, isConnected, [&](FlagType flagType, u32 flag) {
-        if (!isApplyingRemoteFlag && IsSaveLoaded()) {
+        if (!isApplyingRemoteFlag && IsSaveLoaded() && (IsHost() || !awaitingHostState)) {
             SendPacket_UnsetFlag(SCENE_MAX, static_cast<s16>(flagType), static_cast<s16>(flag));
         }
     });
 
     COND_HOOK(OnSceneFlagSet, isConnected, [&](s16 sceneId, FlagType flagType, u32 flag) {
-        if (!isApplyingRemoteFlag && IsSaveLoaded()) {
+        if (!isApplyingRemoteFlag && IsSaveLoaded() && (IsHost() || !awaitingHostState)) {
             SendPacket_SetFlag(sceneId, static_cast<s16>(flagType), static_cast<s16>(flag));
         }
     });
 
     COND_HOOK(OnSceneFlagUnset, isConnected, [&](s16 sceneId, FlagType flagType, u32 flag) {
-        if (!isApplyingRemoteFlag && IsSaveLoaded()) {
+        if (!isApplyingRemoteFlag && IsSaveLoaded() && (IsHost() || !awaitingHostState)) {
             SendPacket_UnsetFlag(sceneId, static_cast<s16>(flagType), static_cast<s16>(flag));
         }
     });
 
     COND_HOOK(OnGameStateMainStart, isConnected, [&]() {
+        if (IsHost() && pendingHostStatePush && IsSaveLoaded()) {
+            pendingHostStatePush = false;
+            SendPacket_UpdateTeamState(CVarGetString("gNetwork.Anchor.TeamId", "default"));
+            SendPacket_SyncTime();
+        } else if (!IsHost() && awaitingHostState && IsSaveLoaded()) {
+            hostStateRequestTimer++;
+            if (hostStateRequestTimer >= 100) {
+                hostStateRequestTimer = 0;
+                SendPacket_RequestTeamState();
+            }
+        }
+
         TickHostTimeSync();
         TickDungeonItemSync();
         TickProgressSync();

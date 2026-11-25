@@ -4,6 +4,7 @@
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/BenPort.h"
 
+#include <algorithm>
 #include <cstring>
 
 extern "C" {
@@ -19,7 +20,12 @@ extern "C" {
  */
 
 namespace {
-constexpr size_t kDungeonCount = ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.dungeonItems);
+constexpr size_t kDungeonItemsCount = ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.dungeonItems);
+constexpr size_t kDungeonKeysCount = ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.dungeonKeys);
+constexpr size_t kStrayFairiesCount = ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.strayFairies);
+constexpr size_t kDungeonCount = (kDungeonItemsCount < kDungeonKeysCount)
+                                     ? ((kDungeonItemsCount < kStrayFairiesCount) ? kDungeonItemsCount : kStrayFairiesCount)
+                                     : ((kDungeonKeysCount < kStrayFairiesCount) ? kDungeonKeysCount : kStrayFairiesCount);
 static u8 sLastDungeonItems[kDungeonCount] = {};
 static s8 sLastDungeonKeys[kDungeonCount] = {};
 static s8 sLastStrayFairies[kDungeonCount] = {};
@@ -52,19 +58,47 @@ void Anchor::TickDungeonItemSync() {
         return;
     }
 
+    if (!IsHost() && awaitingHostState) {
+        SnapshotDungeonItems();
+        return;
+    }
+
     for (u16 i = 0; i < kDungeonCount; i++) {
         u8 curItems = gSaveContext.save.saveInfo.inventory.dungeonItems[i];
         s8 curKeys = gSaveContext.save.saveInfo.inventory.dungeonKeys[i];
         s8 curFairies = gSaveContext.save.saveInfo.inventory.strayFairies[i];
 
-        if (curItems != sLastDungeonItems[i] || curKeys != sLastDungeonKeys[i] ||
-            curFairies != sLastStrayFairies[i]) {
+        u8 itemsAdd = curItems & ~sLastDungeonItems[i];
+        u8 itemsRemove = sLastDungeonItems[i] & ~curItems;
+        s8 keysDelta = static_cast<s8>(curKeys - sLastDungeonKeys[i]);
+        s8 fairiesDelta = static_cast<s8>(curFairies - sLastStrayFairies[i]);
+
+        if (itemsAdd != 0 || itemsRemove != 0 || keysDelta != 0 || fairiesDelta != 0) {
             sLastDungeonItems[i] = curItems;
             sLastDungeonKeys[i] = curKeys;
             sLastStrayFairies[i] = curFairies;
-            SendPacket_UpdateDungeonItems(i);
+            SendPacket_UpdateDungeonItemsDelta(i, itemsAdd, itemsRemove, keysDelta, fairiesDelta);
         }
     }
+}
+
+void Anchor::SendPacket_UpdateDungeonItemsDelta(u16 mapIndex, u8 itemsAdd, u8 itemsRemove, s8 keysDelta,
+                                                s8 fairiesDelta) {
+    if (!IsSaveLoaded() || !roomState.syncItemsAndFlags || mapIndex >= kDungeonCount) {
+        return;
+    }
+
+    nlohmann::json payload;
+    payload["type"] = UPDATE_DUNGEON_ITEMS;
+    payload["targetTeamId"] = CVarGetString("gNetwork.Anchor.TeamId", "default");
+    payload["addToQueue"] = true;
+    payload["mapIndex"] = mapIndex;
+    payload["itemsAdd"] = itemsAdd;
+    payload["itemsRemove"] = itemsRemove;
+    payload["keysDelta"] = keysDelta;
+    payload["fairiesDelta"] = fairiesDelta;
+
+    QueueOutgoingPacket(payload);
 }
 
 void Anchor::SendPacket_UpdateDungeonItems(u16 mapIndex) {
@@ -98,18 +132,37 @@ void Anchor::HandlePacket_UpdateDungeonItems(nlohmann::json payload) {
         return;
     }
 
-    u8 items = payload["dungeonItems"].get<u8>();
-    s8 keys = payload["dungeonKeys"].get<s8>();
-    s8 fairies = payload["strayFairies"].get<s8>();
+    if (payload.contains("itemsAdd")) {
+        u8 itemsAdd = payload.value("itemsAdd", static_cast<u8>(0));
+        u8 itemsRemove = payload.value("itemsRemove", static_cast<u8>(0));
+        s8 keysDelta = payload.value("keysDelta", static_cast<s8>(0));
+        s8 fairiesDelta = payload.value("fairiesDelta", static_cast<s8>(0));
 
-    gSaveContext.save.saveInfo.inventory.dungeonItems[mapIndex] = items;
-    gSaveContext.save.saveInfo.inventory.dungeonKeys[mapIndex] = keys;
-    gSaveContext.save.saveInfo.inventory.strayFairies[mapIndex] = fairies;
+        u8 curItems = gSaveContext.save.saveInfo.inventory.dungeonItems[mapIndex];
+        s8 curKeys = gSaveContext.save.saveInfo.inventory.dungeonKeys[mapIndex];
+        s8 curFairies = gSaveContext.save.saveInfo.inventory.strayFairies[mapIndex];
+
+        gSaveContext.save.saveInfo.inventory.dungeonItems[mapIndex] = (curItems | itemsAdd) & ~itemsRemove;
+        s32 nextKeys = std::max<s32>(0, curKeys) + keysDelta;
+        s32 nextFairies = std::max<s32>(0, curFairies) + fairiesDelta;
+        gSaveContext.save.saveInfo.inventory.dungeonKeys[mapIndex] =
+            static_cast<s8>(std::clamp<s32>(nextKeys, 0, 99));
+        gSaveContext.save.saveInfo.inventory.strayFairies[mapIndex] =
+            static_cast<s8>(std::clamp<s32>(nextFairies, 0, 99));
+    } else {
+        u8 items = payload["dungeonItems"].get<u8>();
+        s8 keys = payload["dungeonKeys"].get<s8>();
+        s8 fairies = payload["strayFairies"].get<s8>();
+
+        gSaveContext.save.saveInfo.inventory.dungeonItems[mapIndex] |= items;
+        gSaveContext.save.saveInfo.inventory.dungeonKeys[mapIndex] = keys;
+        gSaveContext.save.saveInfo.inventory.strayFairies[mapIndex] = fairies;
+    }
 
     if (sDungeonTrackerInitialized) {
-        sLastDungeonItems[mapIndex] = items;
-        sLastDungeonKeys[mapIndex] = keys;
-        sLastStrayFairies[mapIndex] = fairies;
+        sLastDungeonItems[mapIndex] = gSaveContext.save.saveInfo.inventory.dungeonItems[mapIndex];
+        sLastDungeonKeys[mapIndex] = gSaveContext.save.saveInfo.inventory.dungeonKeys[mapIndex];
+        sLastStrayFairies[mapIndex] = gSaveContext.save.saveInfo.inventory.strayFairies[mapIndex];
     }
 }
 
@@ -144,6 +197,11 @@ void Anchor::TickProgressSync() {
     }
 
     if (!sProgressInitialized) {
+        SnapshotProgressState();
+        return;
+    }
+
+    if (!IsHost() && awaitingHostState) {
         SnapshotProgressState();
         return;
     }

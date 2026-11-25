@@ -44,6 +44,7 @@ struct SyncedEnemyState {
     u32 lastUpdatedFrame = 0;
     u32 lastSpawnAttemptFrame = 0;
     bool dead = false;
+    bool everAlive = false;
     u8 zeroHealthFrames = 0;
 };
 
@@ -51,6 +52,8 @@ struct LocalEnemyTracker {
     u8 lastHealth = 0;
     u8 lastColorFilterTimer = 0;
     bool initialized = false;
+    bool everAlive = false;
+    s16 pendingHealth = -1;
 };
 
 static std::map<std::string, SyncedEnemyState> sSyncedEnemies;
@@ -84,6 +87,10 @@ static void EnsureDummyAtCollider(PlayState* play) {
     if (play != nullptr && GET_PLAYER(play) != nullptr) {
         sDummyAtCollider.actor = &GET_PLAYER(play)->actor;
     }
+}
+
+static bool IsBossActor(const Actor* a) {
+    return a->category == ACTORCAT_BOSS;
 }
 
 static bool IsSyncableEnemy(const Actor* actor) {
@@ -136,8 +143,8 @@ static std::string GetOrBindEnemyKey(const Actor* actor) {
     return GetEnemySyncKey(actor);
 }
 
-static Actor* FindMatchingEnemyActor(PlayState* play, const std::string& key, s16 actorId, s8 room, s16 listIndex,
-                                     const Vec3f& homePos, const Vec3f& worldPos) {
+static Actor* FindMatchingEnemyActor(PlayState* play, const std::string& key, s16 actorId, s16 params, s8 room,
+                                     s16 listIndex, const Vec3f& homePos, const Vec3f& worldPos, bool allowFuzzy) {
     if (play == nullptr) {
         return nullptr;
     }
@@ -164,18 +171,22 @@ static Actor* FindMatchingEnemyActor(PlayState* play, const std::string& key, s1
                     return actor;
                 }
 
-                // Fallback fuzzy match by actorId + room + closest position
-                if (room == -1 || actor->room == -1 || actor->room == room) {
-                    if (listIndex >= 0 && GetActorListIndex(actor) == listIndex) {
-                        return actor;
-                    }
-                    f32 dx = actor->world.pos.x - worldPos.x;
-                    f32 dy = actor->world.pos.y - worldPos.y;
-                    f32 dz = actor->world.pos.z - worldPos.z;
-                    f32 distSq = (dx * dx) + (dy * dy) + (dz * dz);
-                    if (distSq < bestDistSq && distSq < (400.0f * 400.0f)) {
-                        bestDistSq = distSq;
-                        bestMatch = actor;
+                // Fallback fuzzy match by actorId + params + room + closest position (non-bosses only, unbound)
+                if (allowFuzzy && !IsBossActor(actor) && actor->params == params &&
+                    (room == -1 || actor->room == -1 || actor->room == room)) {
+                    auto existingBind = sActorToKey.find(actor);
+                    if (existingBind == sActorToKey.end() || existingBind->second == key) {
+                        if (listIndex >= 0 && GetActorListIndex(actor) == listIndex) {
+                            return actor;
+                        }
+                        f32 dx = actor->world.pos.x - worldPos.x;
+                        f32 dy = actor->world.pos.y - worldPos.y;
+                        f32 dz = actor->world.pos.z - worldPos.z;
+                        f32 distSq = (dx * dx) + (dy * dy) + (dz * dz);
+                        if (distSq < bestDistSq && distSq < (400.0f * 400.0f)) {
+                            bestDistSq = distSq;
+                            bestMatch = actor;
+                        }
                     }
                 }
             }
@@ -316,6 +327,19 @@ void Anchor::OnEnemyActorUpdate(Actor* actor) {
     auto& tracker = sLocalEnemyTrackers[actor];
     u8 curHealth = (u8)std::max<s16>(0, actor->colChkInfo.health);
 
+    if (tracker.pendingHealth >= 0) {
+        if (!(curHealth == 0 && tracker.pendingHealth > 0) && curHealth != tracker.pendingHealth) {
+            actor->colChkInfo.health = (u8)tracker.pendingHealth;
+            curHealth = (u8)tracker.pendingHealth;
+        }
+        tracker.lastHealth = curHealth;
+        tracker.pendingHealth = -1;
+    }
+
+    if (curHealth > 0) {
+        tracker.everAlive = true;
+    }
+
     if (!tracker.initialized) {
         tracker.initialized = true;
         tracker.lastHealth = curHealth;
@@ -323,10 +347,9 @@ void Anchor::OnEnemyActorUpdate(Actor* actor) {
     } else {
         // Detect if local player just damaged this enemy on this frame
         bool healthDropped = (curHealth < tracker.lastHealth);
-        bool freshHitFlash = (actor->colorFilterTimer > tracker.lastColorFilterTimer) && (actor->colorFilterTimer >= 4);
 
-        if ((healthDropped || freshHitFlash) && !sSuppressSendDamageForKey.contains(key)) {
-            u8 damageDealt = healthDropped ? (tracker.lastHealth - curHealth) : (u8)actor->colChkInfo.damage;
+        if (healthDropped && !sSuppressSendDamageForKey.contains(key)) {
+            u8 damageDealt = tracker.lastHealth - curHealth;
             SendPacket_EnemyDamage(actor, curHealth, damageDealt, actor->colChkInfo.damageEffect,
                                    actor->colorFilterParams, actor->colorFilterTimer);
         }
@@ -357,6 +380,14 @@ void Anchor::OnEnemyActorUpdate(Actor* actor) {
 
     SyncedEnemyState& synced = it->second;
     if (synced.sceneId != gPlayState->sceneId) {
+        return;
+    }
+
+    if (IsBossActor(actor)) {
+        if (synced.everAlive && synced.health > 0 && synced.health < actor->colChkInfo.health) {
+            actor->colChkInfo.health = synced.health;
+            tracker.lastHealth = synced.health;
+        }
         return;
     }
 
@@ -399,13 +430,13 @@ void Anchor::OnEnemyActorUpdate(Actor* actor) {
     Math_ScaledStepToS(&actor->world.rot.y, synced.targetWorldRot.y, 0x2000);
     Math_ScaledStepToS(&actor->world.rot.z, synced.targetWorldRot.z, 0x2000);
 
-    if (synced.health < actor->colChkInfo.health) {
+    if (synced.everAlive && synced.health < actor->colChkInfo.health) {
         actor->colChkInfo.health = synced.health;
         tracker.lastHealth = synced.health;
     }
 
     // If enemy has 0 health from Host for more than 25 frames and hasn't finished dying, clean it up
-    if (actor->colChkInfo.health == 0 && synced.health == 0) {
+    if (synced.everAlive && tracker.everAlive && actor->colChkInfo.health == 0 && synced.health == 0) {
         synced.zeroHealthFrames++;
         if (synced.zeroHealthFrames == 1) {
             StimulateEnemyAcColliders(gPlayState, actor, 0x00000100, 10);
@@ -418,7 +449,12 @@ void Anchor::OnEnemyActorUpdate(Actor* actor) {
 }
 
 void Anchor::OnEnemyActorKill(Actor* actor) {
-    sLocalEnemyTrackers.erase(actor);
+    bool everAlive = false;
+    auto trackerIt = sLocalEnemyTrackers.find(actor);
+    if (trackerIt != sLocalEnemyTrackers.end()) {
+        everAlive = trackerIt->second.everAlive;
+        sLocalEnemyTrackers.erase(trackerIt);
+    }
 
     std::string key = GetOrBindEnemyKey(actor);
     auto a2k = sActorToKey.find(actor);
@@ -430,7 +466,8 @@ void Anchor::OnEnemyActorKill(Actor* actor) {
         sActorToKey.erase(a2k);
     }
 
-    if (!isConnected || !IsSaveLoaded() || gPlayState == nullptr || !IsSyncableEnemy(actor)) {
+    if (!isConnected || !IsSaveLoaded() || gPlayState == nullptr || !IsSyncableEnemy(actor) || IsBossActor(actor) ||
+        !everAlive || actor->colChkInfo.health != 0) {
         return;
     }
 
@@ -498,6 +535,8 @@ void Anchor::SendPacket_EnemyUpdate() {
                 e["sr"] = actor->shape.rot;
                 e["wr"] = actor->world.rot;
                 e["hp"] = (u8)std::max<s16>(0, actor->colChkInfo.health);
+                e["np"] = (actor->parent == nullptr);
+                e["c"] = actor->category;
                 enemiesJson.push_back(std::move(e));
             }
             actor = actor->next;
@@ -562,18 +601,21 @@ void Anchor::HandlePacket_EnemyUpdate(nlohmann::json payload) {
 
         if (state.health > 0) {
             state.dead = false;
+            state.everAlive = true;
             state.zeroHealthFrames = 0;
 
             bool roomMatches = (state.room == -1 || state.room == gPlayState->roomCtx.curRoom.num ||
                                 state.room == gPlayState->roomCtx.prevRoom.num);
             if (roomMatches) {
-                Actor* match = FindMatchingEnemyActor(gPlayState, key, state.actorId, state.room, state.listIndex,
-                                                      state.homePos, state.targetPos);
+                Actor* match = FindMatchingEnemyActor(gPlayState, key, state.actorId, state.params, state.room,
+                                                      state.listIndex, state.homePos, state.targetPos, true);
                 if (match != nullptr) {
                     sKeyToActor[key] = match;
                     sActorToKey[match] = key;
-                } else if (state.lastSpawnAttemptFrame == 0 ||
-                           (gPlayState->gameplayFrames - state.lastSpawnAttemptFrame) >= 30) {
+                } else if (e.value("np", false) && e.value("c", -1) == ACTORCAT_ENEMY && state.listIndex >= 0 &&
+                           key.rfind("L:", 0) == 0 &&
+                           (state.lastSpawnAttemptFrame == 0 ||
+                            (gPlayState->gameplayFrames - state.lastSpawnAttemptFrame) >= 30)) {
                     state.lastSpawnAttemptFrame = gPlayState->gameplayFrames;
 
                     if (state.actorId >= 0 && state.actorId < ACTOR_ID_MAX &&
@@ -616,6 +658,7 @@ void Anchor::SendPacket_EnemyDamage(Actor* actor, u8 newHealth, u8 damage, u8 da
     payload["sceneId"] = gPlayState->sceneId;
     payload["k"] = GetOrBindEnemyKey(actor);
     payload["id"] = actor->id;
+    payload["pr"] = actor->params;
     payload["rm"] = actor->room;
     payload["li"] = GetActorListIndex(actor);
     payload["home"] = actor->home.pos;
@@ -646,6 +689,7 @@ void Anchor::HandlePacket_EnemyDamage(nlohmann::json payload) {
 
     std::string key = payload.value("k", std::string(""));
     s16 actorId = payload.value("id", (s16)0);
+    s16 params = payload.value("pr", (s16)0);
     s8 room = payload.value("rm", (s8)-1);
     s16 listIndex = payload.value("li", (s16)-1);
     Vec3f homePos = payload.value("home", Vec3f{ 0.0f, 0.0f, 0.0f });
@@ -658,15 +702,33 @@ void Anchor::HandlePacket_EnemyDamage(nlohmann::json payload) {
 
     if (!key.empty()) {
         sSyncedEnemies[key].health = newHealth;
+        if (newHealth > 0) {
+            sSyncedEnemies[key].everAlive = true;
+        }
         sSuppressSendDamageForKey.insert(key);
     }
 
-    Actor* actor = FindMatchingEnemyActor(gPlayState, key, actorId, room, listIndex, homePos, worldPos);
+    Actor* actor =
+        FindMatchingEnemyActor(gPlayState, key, actorId, params, room, listIndex, homePos, worldPos, true);
     if (actor == nullptr) {
         return;
     }
 
-    actor->colChkInfo.health = newHealth;
+    s16 cur = actor->colChkInfo.health;
+    auto& tracker = sLocalEnemyTrackers[actor];
+    tracker.initialized = true;
+    tracker.everAlive = tracker.everAlive || (cur > 0);
+
+    bool shouldStimulate = !(newHealth > 0 && cur <= newHealth);
+    if (shouldStimulate) {
+        actor->colChkInfo.health =
+            (u8)std::min<s16>(cur, std::min<s16>(255, (s16)newHealth + (s16)std::max<u8>(damage, 1)));
+        tracker.pendingHealth = newHealth;
+        tracker.lastHealth = actor->colChkInfo.health;
+    } else {
+        tracker.lastHealth = (u8)cur;
+    }
+
     actor->colChkInfo.damage = damage;
     actor->colChkInfo.damageEffect = damageEffect;
     u8 duration = COLORFILTER_GET_DURATION(colorFilterParams);
@@ -681,15 +743,14 @@ void Anchor::HandlePacket_EnemyDamage(nlohmann::json payload) {
         actor->colorFilterTimer = timer;
     }
 
-    auto& tracker = sLocalEnemyTrackers[actor];
-    tracker.initialized = true;
-    tracker.lastHealth = newHealth;
     tracker.lastColorFilterTimer = actor->colorFilterTimer;
 
     Actor_PlaySfx(actor, NA_SE_IT_SWORD_STRIKE);
 
-    // Stimulate the enemy's AC collider so its native state machine reacts to the hit (knockback, stun, or death!)
-    StimulateEnemyAcColliders(gPlayState, actor, 0x00000100, damage);
+    if (shouldStimulate) {
+        // Stimulate the enemy's AC collider so its native state machine reacts to the hit (knockback, stun, or death!)
+        StimulateEnemyAcColliders(gPlayState, actor, 0x00000100, damage);
+    }
 }
 
 void Anchor::SendPacket_EnemyKill(Actor* actor) {
@@ -703,6 +764,7 @@ void Anchor::SendPacket_EnemyKill(Actor* actor) {
     payload["sceneId"] = gPlayState->sceneId;
     payload["k"] = GetOrBindEnemyKey(actor);
     payload["id"] = actor->id;
+    payload["pr"] = actor->params;
     payload["rm"] = actor->room;
     payload["li"] = GetActorListIndex(actor);
     payload["home"] = actor->home.pos;
@@ -728,6 +790,7 @@ void Anchor::HandlePacket_EnemyKill(nlohmann::json payload) {
 
     std::string key = payload.value("k", std::string(""));
     s16 actorId = payload.value("id", (s16)0);
+    s16 params = payload.value("pr", (s16)0);
     s8 room = payload.value("rm", (s8)-1);
     s16 listIndex = payload.value("li", (s16)-1);
     Vec3f homePos = payload.value("home", Vec3f{ 0.0f, 0.0f, 0.0f });
@@ -739,8 +802,9 @@ void Anchor::HandlePacket_EnemyKill(nlohmann::json payload) {
         sSyncedEnemies[key].dead = true;
     }
 
-    Actor* actor = FindMatchingEnemyActor(gPlayState, key, actorId, room, listIndex, homePos, worldPos);
-    if (actor != nullptr) {
+    Actor* actor =
+        FindMatchingEnemyActor(gPlayState, key, actorId, params, room, listIndex, homePos, worldPos, true);
+    if (actor != nullptr && !IsBossActor(actor)) {
         actor->colChkInfo.health = 0;
         StimulateEnemyAcColliders(gPlayState, actor, 0x00000100, 99);
     }

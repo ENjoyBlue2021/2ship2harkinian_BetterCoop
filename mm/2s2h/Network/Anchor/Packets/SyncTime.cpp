@@ -6,7 +6,10 @@
 
 extern "C" {
 #include "variables.h"
+#include "functions.h"
+#include "overlays/actors/ovl_En_Test4/z_en_test4.h"
 extern PlayState* gPlayState;
+void EnTest4_HandleEvents(struct EnTest4* actor, PlayState* play);
 }
 
 /**
@@ -36,6 +39,12 @@ void Anchor::ResetHostTimeSyncTracker() {
 
 void Anchor::TickHostTimeSync() {
     if (!IsSaveLoaded() || !IsHost() || !roomState.syncItemsAndFlags) {
+        return;
+    }
+
+    if (gSaveContext.nextDayTime != NEXT_TIME_NONE ||
+        (gPlayState != nullptr &&
+         (gPlayState->transitionTrigger != TRANS_TRIGGER_OFF || gPlayState->transitionMode != TRANS_MODE_OFF))) {
         return;
     }
 
@@ -130,11 +139,36 @@ void Anchor::HandlePacket_SyncTime(nlohmann::json payload) {
     }
 
     // Snap time if day changed or clock drifted by more than ~12 units
-    if (dayChanged || std::abs(diff) > 12) {
+    bool snapped = dayChanged || std::abs(diff) > 12;
+    if (snapped) {
         gSaveContext.save.time = hostTime;
         gSaveContext.skyboxTime = hostTime;
     } else if (std::abs(diff) > 2) {
         gSaveContext.save.time = static_cast<u16>(static_cast<int32_t>(gSaveContext.save.time) + (diff / 2));
         gSaveContext.skyboxTime = gSaveContext.save.time;
+    }
+
+    if (snapped && gPlayState != nullptr) {
+        Actor* actor = gPlayState->actorCtx.actorLists[ACTORCAT_SWITCH].first;
+        while (actor != nullptr) {
+            if (actor->id == ACTOR_EN_TEST4) {
+                EnTest4* test4 = (EnTest4*)actor;
+                if (test4->actionFunc == EnTest4_HandleEvents) {
+                    test4->prevTime = CURRENT_TIME;
+                    test4->prevBellTime = CURRENT_TIME;
+                    test4->daytimeIndex = (CURRENT_TIME > CLOCK_TIME(18, 0) || CURRENT_TIME < CLOCK_TIME(6, 0))
+                                              ? THREEDAY_DAYTIME_NIGHT
+                                              : THREEDAY_DAYTIME_DAY;
+                }
+            }
+            actor = actor->next;
+        }
+    }
+
+    bool finalHours = (gSaveContext.save.day >= 4) ||
+                      (gSaveContext.save.day == 3 && gSaveContext.save.time >= (CLOCK_TIME(0, 0) + 5) &&
+                       gSaveContext.save.time < CLOCK_TIME(6, 0));
+    if (!finalHours && gSaveContext.timerStates[TIMER_ID_MOON_CRASH] != TIMER_STATE_OFF) {
+        gSaveContext.timerStates[TIMER_ID_MOON_CRASH] = TIMER_STATE_OFF;
     }
 }

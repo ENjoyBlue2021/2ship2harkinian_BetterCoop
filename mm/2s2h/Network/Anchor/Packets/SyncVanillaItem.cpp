@@ -26,6 +26,10 @@ static bool ShouldSyncVanillaItem(u8 item) {
     if (item >= ITEM_INVALID_1 && item <= ITEM_INVALID_7) {
         return false;
     }
+    if (item == ITEM_KEY_BOSS || item == ITEM_COMPASS || item == ITEM_DUNGEON_MAP || item == ITEM_STRAY_FAIRIES ||
+        item == ITEM_KEY_SMALL) {
+        return false;
+    }
     return true;
 }
 

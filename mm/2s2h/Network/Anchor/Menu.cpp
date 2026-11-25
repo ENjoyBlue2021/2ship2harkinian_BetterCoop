@@ -248,18 +248,24 @@ void AnchorMainMenu(WidgetInfo& info) {
         BenGui::mAnchorRoomWindow->DrawElement();
     }
 
-    // Quick Teleport controls
+    // Player controls (Heal & Quick Teleport)
     bool hasRemotePlayer = false;
     for (auto& [clientId, client] : anchor->clients) {
         if (client.self || !client.online) {
             continue;
         }
         if (!hasRemotePlayer) {
-            ImGui::SeparatorText("Quick Teleport");
+            ImGui::SeparatorText("Players");
             hasRemotePlayer = true;
         }
+        ImGui::PushID(static_cast<int>(clientId));
+        std::string healLabel = "Heal " + client.name;
+        if (ImGui::Button(healLabel.c_str())) {
+            anchor->SendPacket_HealPlayer(clientId);
+        }
+        UIWidgets::Tooltip("Fully refill this player's hearts once");
         if (anchor->CanTeleportTo(clientId)) {
-            ImGui::PushID(static_cast<int>(clientId));
+            ImGui::SameLine();
             std::string tpLabel = "Teleport " + anchorName + " -> " + client.name;
             if (ImGui::Button(tpLabel.c_str())) {
                 anchor->SendPacket_RequestTeleport(clientId);
@@ -269,8 +275,8 @@ void AnchorMainMenu(WidgetInfo& info) {
             if (ImGui::Button(summonLabel.c_str())) {
                 anchor->SendPacket_SummonPlayer(clientId);
             }
-            ImGui::PopID();
         }
+        ImGui::PopID();
     }
 }
 
